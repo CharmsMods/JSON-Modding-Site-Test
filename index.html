@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Venge.io Modding Suite</title>
     <link rel="stylesheet" href="css/style.css">
-     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     </head>
 <body>
     <div id="loading-overlay" class="hidden">
@@ -74,11 +73,13 @@
         </div>
     </div>
 
-    <script src="js/ui.js"></script>
-    <script src="js/fileHandling.js"></script>
-    <script src="js/selection.js"></script>
-    <script src="js/bulkOperations.js"></script>
-    <script src="js/export.js"></script>
-    <script src="js/main.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script type="module" src="js/ui.js"></script>
+    <script type="module" src="js/fileHandling.js"></script>
+    <script type="module" src="js/selection.js"></script>
+    <script type="module" src="js/bulkOperations.js"></script>
+    <script type="module" src="js/export.js"></script>
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>
