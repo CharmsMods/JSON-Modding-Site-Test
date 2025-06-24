@@ -52,10 +52,13 @@ function handleCardClick(event) {
 
         for (let i = startIndex; i <= endIndex; i++) {
             const cardToSelect = allCards[i];
-            const selectKey = `${cardToSelect.dataset.folderNumber}/${cardToSelect.dataset.fileName}`;
-            if (!selectedAssets.has(selectKey)) {
-                selectedAssets.add(selectKey);
-                toggleCardSelection(cardToSelect, true);
+            // Only select if the card is currently displayed
+            if (cardToSelect.style.display !== 'none') {
+                const selectKey = `${cardToSelect.dataset.folderNumber}/${cardToSelect.dataset.fileName}`;
+                if (!selectedAssets.has(selectKey)) {
+                    selectedAssets.add(selectKey);
+                    toggleCardSelection(cardToSelect, true);
+                }
             }
         }
     } else {
@@ -81,15 +84,21 @@ function toggleSelectMode() {
     isSelectMode = !isSelectMode;
     console.log(`Selection: Select mode is now ${isSelectMode ? 'ON' : 'OFF'}.`);
     const selectButton = document.getElementById('select-assets-btn');
+    const selectAllBtn = document.getElementById('select-all-displayed-btn'); // Get the Select All button
+
     if (isSelectMode) {
         selectButton.textContent = 'Exit Select Mode';
         selectButton.style.backgroundColor = '#d19a66'; // Change color to indicate active mode
-        // Potentially add a class to the body or main element to indicate select mode
-        // to change cursor or other visual cues.
+        if (selectAllBtn) {
+            selectAllBtn.classList.remove('hidden'); // Show Select All button
+        }
     } else {
         selectButton.textContent = 'Select Assets';
         selectButton.style.backgroundColor = ''; // Reset color
         clearAllSelections(); // Clear selections when exiting mode
+        if (selectAllBtn) {
+            selectAllBtn.classList.add('hidden'); // Hide Select All button
+        }
     }
 }
 
@@ -119,13 +128,16 @@ export function selectAllDisplayedAssets() {
         return;
     }
     console.log('Selection: Selecting all displayed assets.');
+    // Only select cards that are currently visible (not display: none)
     document.querySelectorAll('.asset-card').forEach(card => {
-        const folderNumber = card.dataset.folderNumber;
-        const fileName = card.dataset.fileName;
-        const assetKey = `${folderNumber}/${fileName}`;
-        if (!selectedAssets.has(assetKey)) {
-            selectedAssets.add(assetKey);
-            toggleCardSelection(card, true);
+        if (card.style.display !== 'none') { // Check if the card is visible
+            const folderNumber = card.dataset.folderNumber;
+            const fileName = card.dataset.fileName;
+            const assetKey = `${folderNumber}/${fileName}`;
+            if (!selectedAssets.has(assetKey)) {
+                selectedAssets.add(assetKey);
+                toggleCardSelection(card, true);
+            }
         }
     });
     updateSelectedAssetsCount(selectedAssets.size);

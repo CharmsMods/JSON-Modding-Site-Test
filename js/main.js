@@ -4,11 +4,12 @@ import { loadAllAssetsIntoMemory, downloadAsset, importChanges, exportChanges, a
 import { initializeSelection, clearAllSelections, selectAllDisplayedAssets, getIsSelectMode } from './selection.js';
 import { initializeBulkOperations } from './bulkOperations.js';
 import { showLoadingOverlay, hideLoadingOverlay } from './ui.js';
+import { downloadAllAssetsAsZip } from './export.js'; // <-- NEW: Import the function directly
 
 // Make assetData globally accessible for selection.js
 // This is a common pattern for managing shared state across modules
 // You could also use a more sophisticated state management system like Redux or simply pass it around.
-window.assetData = assetData;
+window.assetData = assetData; // Keep this for now as selection.js directly accesses window.assetData
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Main: DOMContentLoaded. Initializing application...');
@@ -20,8 +21,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Event Listeners for Header Buttons
     document.getElementById('clear-search-btn').addEventListener('click', handleClearSearch);
     document.getElementById('download-all-zip-btn').addEventListener('click', () => {
-        // This will call the function from export.js
-        window.downloadAllAssetsAsZip(); // Using window to access it if not directly imported or if using script tags
+        // This will now call the directly imported function
+        downloadAllAssetsAsZip(); // <-- FIXED: Call directly
     });
     document.getElementById('import-changes-btn').addEventListener('click', handleImportChanges);
     document.getElementById('export-changes-btn').addEventListener('click', exportChanges);
@@ -30,22 +31,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     searchBar.addEventListener('input', handleSearchInput);
 
     // Event listener for "Select All Currently Displaying Assets" (needs a new button in header)
-    // For now, let's just make it part of the 'Select Assets' button's functionality
-    // if in select mode. Or, add a separate button. For now, adding a separate button.
     const selectAssetsBtn = document.getElementById('select-assets-btn');
     const headerRight = document.querySelector('.header-right');
-    const selectAllBtn = document.createElement('button');
-    selectAllBtn.id = 'select-all-displayed-btn';
-    selectAllBtn.classList.add('header-button', 'hidden'); // Hidden by default
-    selectAllBtn.textContent = 'Select All Displayed';
-    selectAllBtn.addEventListener('click', selectAllDisplayedAssets);
-    headerRight.insertBefore(selectAllBtn, selectAssetsBtn.nextSibling); // Insert after select-assets-btn
+    let selectAllBtn = document.getElementById('select-all-displayed-btn'); // Try to get it if it already exists
+
+    if (!selectAllBtn) { // Create if it doesn't exist (only once)
+        selectAllBtn = document.createElement('button');
+        selectAllBtn.id = 'select-all-displayed-btn';
+        selectAllBtn.classList.add('header-button', 'hidden'); // Hidden by default
+        selectAllBtn.textContent = 'Select All Displayed';
+        selectAllBtn.addEventListener('click', selectAllDisplayedAssets);
+        headerRight.insertBefore(selectAllBtn, selectAssetsBtn.nextSibling); // Insert after select-assets-btn
+    }
 
     selectAssetsBtn.addEventListener('click', () => {
         // Toggle visibility of 'Select All Displayed' button when entering/exiting select mode
-        if (getIsSelectMode()) { // If entering select mode
+        if (getIsSelectMode()) { // If entering select mode (meaning it just turned ON)
             selectAllBtn.classList.remove('hidden');
-        } else { // If exiting select mode
+        } else { // If exiting select mode (meaning it just turned OFF)
             selectAllBtn.classList.add('hidden');
         }
     });
@@ -96,6 +99,8 @@ function handleClearSearch() {
     document.querySelectorAll('.asset-card').forEach(card => {
         card.style.display = ''; // Show all cards
     });
+    // Ensure selections are cleared when search is cleared, if desired
+    // clearAllSelections(); // Uncomment if you want to clear selections on search clear
 }
 
 /**
