@@ -1,7 +1,7 @@
 // js/main.js
 
 // Import necessary functions from fileHandler.js
-import { loadAssetLists, loadAssetDataOnDemand } from './fileHandler.js'; // loadAssetDataOnDemand is new
+import { loadAssetLists, loadAssetDataOnDemand } from './fileHandler.js';
 // Import bulkTextureOperations.js to activate its event listeners
 import './bulkTextureOperations.js';
 // Import downloadAllAssetsAsZip for zip functionality
@@ -372,7 +372,7 @@ function handleSearchInput() {
  * @param {string} newDataUrl - The new Data URL of the asset.
  * @comment This function ensures the UI reacts to image modifications.
  */
-export function updateAssetCardDisplay(fullPath, newDataUrl) {
+export function updateAssetCardDisplay(fullPath, newDataUrl) { // This is the ONLY export for this function
     const asset = allGameAssets.find(a => a.fullPath === fullPath);
     if (asset) {
         asset.dataUrl = newDataUrl; // Update the asset's data URL
