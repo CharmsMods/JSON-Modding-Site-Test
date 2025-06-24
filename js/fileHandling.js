@@ -1,195 +1,55 @@
 // js/fileHandling.js
-// This file will manage all aspects of file loading, parsing, encoding, and decoding.
-import { showLoadingOverlay, hideLoadingOverlay, createAssetCard, markCardAsEdited } from './ui.js';
+// This file handles loading asset data from JSON, converting formats, and managing edited assets.
+import { renderAssetCards, showLoadingOverlay, hideLoadingOverlay, updateLoadingProgress, createAssetCard, markCardAsEdited } from './ui.js';
+import { toggleCardSelectionUI, toggleCardExclusionUI } from './selection.js'; // Import UI toggles for cards
 
-// Stores original and modified asset data
-// Structure: { "folderNumber": { "fileName": { originalBase64: "...", currentBase64: "...", type: "jpg/png/mp3", isEdited: true/false } } }
+// Global storage for original asset data
+// Structure: { "folderNumber": { "fileName": { originalBase64: "...", currentBase64: "...", type: "...", originalType: "...", isEdited: false } } }
 export const assetData = {};
 
-// Stores lists from .txt files
-export const assetLists = {
-    mp3: [],
-    jpg: [],
-    png: []
-};
-
 // Store edited assets separately for easier export later
-// Structure: { "folderNumber": { "fileName": { base64Data: "...", type: "...", originalFileName: "...", originalType: "..." } } }
+// Structure: { "folderNumber": { "fileName": { base64Data: "...", type: "...", isExcluded: true/false, originalFileName: "...", originalType: "..." } } }
 export const editedAssets = {};
 
 /**
- * Fetches and parses a JSON file.
- * @param {string} url - The URL of the JSON file.
- * @returns {Promise<object>} A promise that resolves with the parsed JSON data.
- */
-async function fetchJsonFile(url) {
-    console.log(`FileHandling: Fetching JSON file from ${url}`);
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
-    } catch (error) {
-        console.error(`FileHandling: Error fetching JSON file ${url}:`, error);
-        alert(`Failed to load essential data: ${url}. Please check your connection or file path.`);
-        throw error;
-    }
-}
-
-/**
- * Fetches and parses a text file, returning an array of lines.
- * @param {string} url - The URL of the text file.
- * @returns {Promise<string[]>} A promise that resolves with an array of lines.
- */
-async function fetchTxtFile(url) {
-    console.log(`FileHandling: Fetching TXT file from ${url}`);
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
-        return text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-    } catch (error) {
-        console.error(`FileHandling: Error fetching TXT file ${url}:`, error);
-        alert(`Failed to load asset list: ${url}.`);
-        throw error;
-    }
-}
-
-/**
- * Loads all asset lists and JSON data into memory.
- * This is the initial loading process shown to the user.
- * @returns {Promise<void>} A promise that resolves when all assets are loaded.
+ * Fetches the main assets JSON and processes it.
  */
 export async function loadAllAssetsIntoMemory() {
-    console.log('FileHandling: Starting to load all assets into memory.');
-    showLoadingOverlay('Loading asset lists...');
-
+    console.log('FileHandling: Loading all assets into memory...');
+    showLoadingOverlay('Loading assets JSON...');
     try {
-        // Load asset lists (.txt files)
-        const [mp3List, jpgList, pngList] = await Promise.all([
-            fetchTxtFile('assets/mp3list.txt'),
-            fetchTxtFile('assets/jpglist.txt'),
-            fetchTxtFile('assets/pnglist.txt')
-        ]);
-
-        assetLists.mp3 = mp3List;
-        assetLists.jpg = jpgList;
-        assetLists.png = pngList;
-        console.log('FileHandling: Asset lists loaded.');
-        console.log('MP3 List:', assetLists.mp3.length);
-        console.log('JPG List:', assetLists.jpg.length);
-        console.log('PNG List:', assetLists.png.length);
-
-
-        // Load Base64 JSON data
-        showLoadingOverlay('Loading asset data (this might take a moment)...');
-        // Fetch the full JSON structure now
-        const [fullJpgJson, fullPngJson, fullMp3Json] = await Promise.all([
-            fetchJsonFile('assets/jpg_files_structure.json'),
-            fetchJsonFile('assets/png_files_structure.json'),
-            fetchJsonFile('assets/mp3_files_structure.json')
-        ]);
-        console.log('FileHandling: Full asset JSON data loaded.');
-
-        // Extract the relevant 'assets' object from the deep nesting
-        // Using optional chaining to safely access nested properties
-        const jpgJson = fullJpgJson?.["mod-client-export"]?.["Venge Client"]?.["Resource Swapper"]?.["files"]?.["assets"] || {};
-        const pngJson = fullPngJson?.["mod-client-export"]?.["Venge Client"]?.["Resource Swapper"]?.["files"]?.["assets"] || {};
-        const mp3Json = fullMp3Json?.["mod-client-export"]?.["Venge Client"]?.["Resource Swapper"]?.["files"]?.["assets"] || {};
-
-        if (Object.keys(jpgJson).length === 0 && Object.keys(pngJson).length === 0 && Object.keys(mp3Json).length === 0) {
-            console.warn('FileHandling: No asset data found at the expected nested path within the JSON files. Please check JSON structure.');
-            alert('Warning: No asset data found. Make sure your JSON files are correctly structured.');
+        const response = await fetch('assets/assets.json');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        const data = await response.json();
+        console.log('FileHandling: Assets JSON loaded successfully.');
 
+        let processedCount = 0;
+        const totalAssets = Object.keys(data).reduce((sum, folderNum) => sum + Object.keys(data[folderNum]).length, 0);
 
-        const assetGrid = document.getElementById('asset-grid');
-        let loadedCount = 0;
-        const totalAssets = jpgList.length + pngList.length + mp3List.length;
-
-        // Process JPG assets
-        for (const line of jpgList) {
-            const [folderNumber, fileName] = line.split(' ');
-            // Access the 'data' property from the nested structure
-            const assetDetails = jpgJson[folderNumber]?.["1"]?.[fileName];
-            if (assetDetails && assetDetails.data) {
-                const base64Data = assetDetails.data;
-                if (!assetData[folderNumber]) {
-                    assetData[folderNumber] = {};
-                }
+        for (const folderNumber in data) {
+            assetData[folderNumber] = {};
+            for (const fileName in data[folderNumber]) {
+                const asset = data[folderNumber][fileName];
                 assetData[folderNumber][fileName] = {
-                    originalBase64: base64Data,
-                    currentBase64: base64Data,
-                    type: 'jpg', // Still infer type from list for consistency
-                    isEdited: false
+                    originalBase64: asset.base64,
+                    currentBase64: asset.base64, // Initially, current is same as original
+                    type: asset.type,
+                    originalType: asset.type, // Store original type
+                    isEdited: false,
+                    isExcluded: false // Default to not excluded
                 };
-                const card = createAssetCard({ folderNumber, fileName, base64Data, type: 'jpg' });
-                assetGrid.appendChild(card);
-            } else {
-                console.warn(`FileHandling: JPG asset data not found or 'data' property missing for ${folderNumber}/${fileName}`);
+                processedCount++;
+                updateLoadingProgress(`Processed ${processedCount}/${totalAssets} assets...`);
             }
-            loadedCount++;
-            showLoadingOverlay('Loading asset data...', `${loadedCount}/${totalAssets} assets processed.`);
         }
-
-        // Process PNG assets
-        for (const line of pngList) {
-            const [folderNumber, fileName] = line.split(' ');
-            const assetDetails = pngJson[folderNumber]?.["1"]?.[fileName];
-            if (assetDetails && assetDetails.data) {
-                const base64Data = assetDetails.data;
-                if (!assetData[folderNumber]) {
-                    assetData[folderNumber] = {};
-                }
-                assetData[folderNumber][fileName] = {
-                    originalBase64: base64Data,
-                    currentBase64: base64Data,
-                    type: 'png',
-                    isEdited: false
-                };
-                const card = createAssetCard({ folderNumber, fileName, base64Data, type: 'png' });
-                assetGrid.appendChild(card);
-            } else {
-                console.warn(`FileHandling: PNG asset data not found or 'data' property missing for ${folderNumber}/${fileName}`);
-            }
-            loadedCount++;
-            showLoadingOverlay('Loading asset data...', `${loadedCount}/${totalAssets} assets processed.`);
-        }
-
-        // Process MP3 assets (no image preview for these, so create card differently)
-        for (const line of mp3List) {
-            const [folderNumber, fileName] = line.split(' ');
-            const assetDetails = mp3Json[folderNumber]?.["1"]?.[fileName];
-            if (assetDetails && assetDetails.data) {
-                const base64Data = assetDetails.data; // MP3 data will be stored but not displayed as image
-                if (!assetData[folderNumber]) {
-                    assetData[folderNumber] = {};
-                }
-                assetData[folderNumber][fileName] = {
-                    originalBase64: base64Data,
-                    currentBase64: base64Data,
-                    type: 'mp3',
-                    isEdited: false
-                };
-                const card = createAssetCard({ folderNumber, fileName, base64Data: '', type: 'mp3' }); // No base64Data for image
-                assetGrid.appendChild(card);
-            } else {
-                console.warn(`FileHandling: MP3 asset data not found or 'data' property missing for ${folderNumber}/${fileName}`);
-            }
-            loadedCount++;
-            showLoadingOverlay('Loading asset data...', `${loadedCount}/${totalAssets} assets processed.`);
-        }
-
-        console.log('FileHandling: All assets processed and cards created.');
-    } catch (error) {
-        console.error('FileHandling: Error during asset loading:', error);
-        alert('An error occurred while loading assets. Please check the console for details.');
-    } finally {
+        renderAssetCards(assetData); // Render cards once all assets are loaded
         hideLoadingOverlay();
-        console.log('FileHandling: Asset loading complete. Overlay hidden.');
+        console.log('FileHandling: All assets processed and rendered.');
+    } catch (error) {
+        console.error('FileHandling: Error loading assets:', error);
+        showLoadingOverlay('Error loading assets!', 'Please check console for details.', true); // Show error indefinitely
     }
 }
 
@@ -200,7 +60,33 @@ export async function loadAllAssetsIntoMemory() {
  * @returns {Blob} The created Blob.
  */
 export function base64ToBlob(base64, mimeType) {
-    const byteCharacters = atob(base64);
+    if (!base64 || typeof base64 !== 'string') {
+        console.error("FileHandling: base64ToBlob received invalid base64 data:", base64, "MIME:", mimeType);
+        throw new Error("Invalid base64 string provided to base64ToBlob.");
+    }
+
+    // Attempt to add padding if it's missing, common issue with some base64 sources
+    let paddedBase64 = base64;
+    const len = base64.length;
+    const remainder = len % 4;
+    if (remainder !== 0) {
+        // Only add padding if it's missing. Standard base64 should have padding.
+        // It's possible base64 strings might not be perfectly padded if source is non-standard.
+        for (let i = 0; i < 4 - remainder; i++) {
+            paddedBase64 += '=';
+        }
+    }
+    // Remove any non-base64 characters that might have snuck in (e.g., newlines, spaces)
+    paddedBase64 = paddedBase64.replace(/[^A-Za-z0-9+/=]/g, '');
+
+    let byteCharacters;
+    try {
+        byteCharacters = atob(paddedBase64);
+    } catch (e) {
+        console.error("FileHandling: Failed to decode base64 string using atob(). Possible invalid characters or malformation.", e, "Base64 snippet:", paddedBase64.substring(0, 100) + '...'); // Log first 100 chars
+        throw new Error(`Failed to decode base64 string: ${e.message}. Data might be corrupted.`);
+    }
+
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
@@ -210,15 +96,15 @@ export function base64ToBlob(base64, mimeType) {
 }
 
 /**
- * Converts a Blob or File to a Base64 string.
- * @param {Blob|File} blob - The Blob or File object.
- * @returns {Promise<string>} A promise that resolves with the Base64 string.
+ * Converts a Blob to a Base64 string.
+ * @param {Blob} blob - The Blob to convert.
+ * @returns {Promise<string>} A promise that resolves with the Base64 encoded string (without data:MIME/type;base64, prefix).
  */
 export function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
-            // Remove the "data:image/png;base64," prefix that FileReader.readAsDataURL adds
+            // Remove the data:MIME/type;base64, prefix
             const base64String = reader.result.split(',')[1];
             resolve(base64String);
         };
@@ -228,36 +114,49 @@ export function blobToBase64(blob) {
 }
 
 /**
- * Downloads a single asset.
+ * Gets the MIME type for a given asset type.
+ * @param {string} type - The asset type (e.g., 'jpg', 'png', 'mp3').
+ * @returns {string} The corresponding MIME type.
+ */
+export function getMimeType(type) {
+    switch (type) {
+        case 'jpg': return 'image/jpeg';
+        case 'png': return 'image/png';
+        case 'mp3': return 'audio/mpeg';
+        case 'wav': return 'audio/wav'; // Though WAV usually gets converted
+        default: return 'application/octet-stream'; // Generic binary data
+    }
+}
+
+/**
+ * Triggers a download of a specific asset.
  * @param {string} folderNumber - The folder number of the asset.
  * @param {string} fileName - The file name of the asset.
  */
 export function downloadAsset(folderNumber, fileName) {
-    console.log(`FileHandling: Initiating download for ${folderNumber}/${fileName}`);
+    console.log(`FileHandling: Downloading asset: ${folderNumber}/${fileName}`);
     const asset = assetData[folderNumber]?.[fileName];
-    if (!asset) {
-        console.error(`FileHandling: Asset not found for download: ${folderNumber}/${fileName}`);
-        alert('Asset not found for download!');
-        return;
+    if (asset && asset.currentBase64) {
+        try {
+            const mimeType = getMimeType(asset.type);
+            const blob = base64ToBlob(asset.currentBase64, mimeType);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            console.log(`FileHandling: Download initiated for ${fileName}.`);
+        } catch (error) {
+            console.error(`FileHandling: Error creating blob for download of ${fileName}:`, error);
+            alert(`Failed to prepare download for ${fileName}. See console.`);
+        }
+    } else {
+        console.warn(`FileHandling: Asset not found or no currentBase64 data for download: ${folderNumber}/${fileName}`);
+        alert('Asset data not available for download.');
     }
-
-    const mimeTypeMap = {
-        'jpg': 'image/jpeg',
-        'png': 'image/png',
-        'mp3': 'audio/mpeg'
-    };
-    const mimeType = mimeTypeMap[asset.type] || 'application/octet-stream';
-    const blob = base64ToBlob(asset.currentBase64, mimeType);
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName; // Use the actual file name for download
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    console.log(`FileHandling: Download for ${fileName} completed.`);
 }
 
 /**
@@ -267,28 +166,60 @@ export function downloadAsset(folderNumber, fileName) {
  * @param {string} fileName - The file name of the asset.
  * @param {string} newBase64Data - The new Base64 encoded data.
  * @param {string} newType - The new type if it changed (e.g., from jpg to png due to conversion).
+ * @param {boolean} [isExcluded=false] - Optional: If this update is specifically to mark/unmark for exclusion.
  */
-export function updateAssetInMemory(folderNumber, fileName, newBase64Data, newType) {
-    console.log(`FileHandling: Updating asset in memory: ${folderNumber}/${fileName}. New Type: ${newType}`);
+export function updateAssetInMemory(folderNumber, fileName, newBase64Data, newType, isExcludedUpdate = null) {
+    console.log(`FileHandling: Updating asset in memory: ${folderNumber}/${fileName}. New Type: ${newType}.`);
     if (assetData[folderNumber] && assetData[folderNumber][fileName]) {
         assetData[folderNumber][fileName].currentBase64 = newBase64Data;
-        assetData[folderNumber][fileName].isEdited = true;
-        // Update the type if it changed (e.g., from image conversion)
-        assetData[folderNumber][fileName].type = newType;
+        assetData[folderNumber][fileName].type = newType; // Update type
 
-        // Add to editedAssets for export
+        // Ensure editedAssets entry exists
         editedAssets[folderNumber] = editedAssets[folderNumber] || {};
-        editedAssets[folderNumber][fileName] = {
-            base64Data: newBase64Data,
-            type: newType,
-            originalFileName: fileName, // Keep original file name
-            originalType: assetData[folderNumber][fileName].originalType || assetData[folderNumber][fileName].type // Keep original type
+        editedAssets[folderNumber][fileName] = editedAssets[folderNumber][fileName] || {
+            originalFileName: fileName,
+            originalType: assetData[folderNumber][fileName].originalType || assetData[folderNumber][fileName].type,
+            // Default isExcluded to false, but if it exists in editedAssets, preserve it
+            isExcluded: assetData[folderNumber][fileName].isExcluded // Preserve current exclusion status
         };
+
+        // Update properties in editedAssets
+        editedAssets[folderNumber][fileName].base64Data = newBase64Data;
+        editedAssets[folderNumber][fileName].type = newType;
+
+        // Apply isExcludedUpdate if explicitly provided
+        if (typeof isExcludedUpdate === 'boolean') {
+            editedAssets[folderNumber][fileName].isExcluded = isExcludedUpdate;
+            assetData[folderNumber][fileName].isExcluded = isExcludedUpdate; // Also update in main assetData for consistency
+        }
+        
+        // Mark as edited if any change (including base64 data or exclusion status changed from default)
+        // If the currentBase64 is different from originalBase64, it's edited.
+        // If the isExcluded status is true, it's edited (from default false).
+        const isContentChanged = assetData[folderNumber][fileName].currentBase64 !== assetData[folderNumber][fileName].originalBase64;
+        const isTypeChanged = assetData[folderNumber][fileName].type !== assetData[folderNumber][fileName].originalType;
+        const isExclusionStatusChanged = assetData[folderNumber][fileName].isExcluded === true; // Check if it's currently excluded
+
+        assetData[folderNumber][fileName].isEdited = isContentChanged || isTypeChanged || isExclusionStatusChanged;
 
         // Update the UI card
         const cardElement = document.querySelector(`.asset-card[data-folder-number="${folderNumber}"][data-file-name="${fileName}"]`);
         if (cardElement) {
-            markCardAsEdited(cardElement, newBase64Data, newType);
+            if (assetData[folderNumber][fileName].isEdited) {
+                markCardAsEdited(cardElement, newBase64Data, newType); // Handles normal edited state (orange text)
+            } else {
+                // If somehow it's no longer edited (e.g., reverted), remove class
+                cardElement.classList.remove('edited');
+                const typeSpan = cardElement.querySelector('.asset-type');
+                if (typeSpan) typeSpan.textContent = assetData[folderNumber][fileName].originalType.toUpperCase();
+            }
+
+            // Apply exclusion UI if the asset is currently marked as excluded in editedAssets
+            if (assetData[folderNumber][fileName].isExcluded) {
+                toggleCardExclusionUI(cardElement, true);
+            } else {
+                toggleCardExclusionUI(cardElement, false);
+            }
         } else {
             console.warn(`FileHandling: Could not find card element for ${folderNumber}/${fileName} to update.`);
         }
@@ -296,6 +227,7 @@ export function updateAssetInMemory(folderNumber, fileName, newBase64Data, newTy
         console.error(`FileHandling: Asset not found in memory to update: ${folderNumber}/${fileName}`);
     }
 }
+
 
 /**
  * Imports changes from a JSON file.
@@ -312,28 +244,99 @@ export async function importChanges(file) {
                 const importedData = JSON.parse(event.target.result);
                 console.log('FileHandling: Imported data:', importedData);
 
-                // Clear current edited assets and apply imported ones
+                // Clear current selections/exclusions and edited state in UI and internal sets
+                // These are imported from selection.js, so make sure they are functions or methods on imported objects
+                // In this setup, selectedAssets and excludedAssets are direct Set objects, not functions.
+                // You'd typically clear them directly if imported, or call functions like clearAllSelections().
+                // Assuming selection.js provides functions to manage its state correctly:
+                // If selectedAssets and excludedAssets are directly exported Sets from selection.js,
+                // you would need to either import clearAllSelections/clearAllExclusions or ensure your usage respects module boundaries.
+                // For now, let's explicitly clear classes and sets (assuming direct access is okay for cleanup).
+                document.querySelectorAll('.asset-card.selected').forEach(card => card.classList.remove('selected'));
+                document.querySelectorAll('.asset-card.excluded').forEach(card => card.classList.remove('excluded'));
+                document.querySelectorAll('.asset-card.edited').forEach(card => card.classList.remove('edited'));
+                // Clear the global selection sets if imported (assuming they are directly imported from selection.js)
+                // If they are not directly imported sets, but rather managed internally by selection.js
+                // then ensure selection.js has a clearAll function.
+                // For the current setup, `selectedAssets` and `excludedAssets` from selection.js are directly exposed Sets.
+                // The main.js code calls `clearAllSelections()`/`clearAllExclusions()` on button clicks.
+                // Here, we need to manually clear the actual classes and reset the `assetData` status.
+                
+                // Reset all assets to original state first
+                for (const folderNumber in assetData) {
+                    for (const fileName in assetData[folderNumber]) {
+                        assetData[folderNumber][fileName].currentBase64 = assetData[folderNumber][fileName].originalBase64;
+                        assetData[folderNumber][fileName].type = assetData[folderNumber][fileName].originalType;
+                        assetData[folderNumber][fileName].isEdited = false;
+                        assetData[folderNumber][fileName].isExcluded = false; // Reset exclusion status
+                        const cardElement = document.querySelector(`.asset-card[data-folder-number="${folderNumber}"][data-file-name="${fileName}"]`);
+                        if (cardElement) {
+                            cardElement.classList.remove('edited', 'selected', 'excluded');
+                            const typeSpan = cardElement.querySelector('.asset-type');
+                            if (typeSpan) typeSpan.textContent = assetData[folderNumber][fileName].originalType.toUpperCase();
+                            const imgElement = cardElement.querySelector('.asset-preview-img');
+                            const audioPlaceholder = cardElement.querySelector('.audio-placeholder');
+                             if (imgElement) {
+                                imgElement.src = `data:${getMimeType(assetData[folderNumber][fileName].originalType)};base64,${assetData[folderNumber][fileName].originalBase64}`;
+                                imgElement.classList.remove('hidden');
+                                if (audioPlaceholder) audioPlaceholder.classList.add('hidden');
+                            } else if (audioPlaceholder) { // Re-show audio placeholder if it's audio and no img
+                                audioPlaceholder.classList.remove('hidden');
+                            }
+                        }
+                    }
+                }
+                // Clear the `editedAssets` object completely
                 for (const folderNum in editedAssets) {
                     delete editedAssets[folderNum];
                 }
 
+
                 for (const folderNumber in importedData) {
                     for (const fileName in importedData[folderNumber]) {
-                        const { base64Data, type } = importedData[folderNumber][fileName];
+                        const importedAsset = importedData[folderNumber][fileName];
+                        // Default isExcluded to false if not present in imported data
+                        const { base64Data, type, isExcluded = false, originalFileName, originalType } = importedAsset; 
+
                         // Ensure the asset exists in original assetData before applying
                         if (assetData[folderNumber] && assetData[folderNumber][fileName]) {
-                            updateAssetInMemory(folderNumber, fileName, base64Data, type);
-                            console.log(`FileHandling: Applied imported change for ${folderNumber}/${fileName}`);
+                            // Update assetData's current state
+                            assetData[folderNumber][fileName].currentBase64 = base64Data;
+                            assetData[folderNumber][fileName].type = type; // Update the asset's type
+                            assetData[folderNumber][fileName].isEdited = true; // Mark as edited
+                            assetData[folderNumber][fileName].isExcluded = isExcluded; // Apply exclusion status
+
+                            // Populate editedAssets object
+                            editedAssets[folderNumber] = editedAssets[folderNumber] || {};
+                            editedAssets[folderNumber][fileName] = {
+                                base64Data: base64Data,
+                                type: type,
+                                originalFileName: originalFileName || fileName, // Use originalFileName from import if present
+                                originalType: originalType || assetData[folderNumber][fileName].originalType, // Use originalType from import if present
+                                isExcluded: isExcluded
+                            };
+
+                            // Update the UI card
+                            const cardElement = document.querySelector(`.asset-card[data-folder-number="${folderNumber}"][data-file-name="${fileName}"]`);
+                            if (cardElement) {
+                                markCardAsEdited(cardElement, base64Data, type); // Mark as edited (orange text, update preview)
+                                if (isExcluded) {
+                                    toggleCardExclusionUI(cardElement, true); // Apply red border
+                                } else {
+                                    toggleCardExclusionUI(cardElement, false);
+                                }
+                            }
+                            console.log(`FileHandling: Applied imported change for ${folderNumber}/${fileName}. Excluded: ${isExcluded}`);
                         } else {
                             console.warn(`FileHandling: Skipping imported asset ${folderNumber}/${fileName} as it does not exist in original asset list.`);
                         }
                     }
                 }
-                alert('Changes imported successfully!');
+                alert('Changes imported successfully! Check cards for updated states.');
                 console.log('FileHandling: Import complete.');
             } catch (jsonError) {
                 console.error('FileHandling: Error parsing imported JSON:', jsonError);
-                alert('Invalid JSON file format.');
+                alert('Invalid JSON file format. Make sure it matches the export format.');
             } finally {
                 hideLoadingOverlay();
             }
@@ -351,19 +354,46 @@ export async function importChanges(file) {
     }
 }
 
+
 /**
- * Exports current edited assets to a JSON file.
+ * Exports currently edited assets to a JSON file.
  */
 export function exportChanges() {
-    console.log('FileHandling: Exporting changes to JSON file.');
-    if (Object.keys(editedAssets).length === 0) {
-        alert('No changes to export yet!');
-        console.log('FileHandling: No edited assets to export.');
+    console.log('FileHandling: Exporting changes to JSON...');
+    const editedDataForExport = {};
+    let hasEditedAssets = false;
+
+    for (const folderNumber in editedAssets) {
+        for (const fileName in editedAssets[folderNumber]) {
+            const asset = editedAssets[folderNumber][fileName];
+            // Only include assets that are actually edited or explicitly excluded
+            // The `isEdited` flag in `assetData` dictates if it's truly changed from original.
+            // If `isExcluded` is true, it should also be part of the export, even if `base64Data` is original.
+            const originalAsset = assetData[folderNumber]?.[fileName];
+
+            // If the base64 data has changed OR the type has changed OR it's explicitly excluded
+            if (originalAsset && (asset.base64Data !== originalAsset.originalBase64 || asset.type !== originalAsset.originalType || asset.isExcluded)) {
+                editedDataForExport[folderNumber] = editedDataForExport[folderNumber] || {};
+                editedDataForExport[folderNumber][fileName] = {
+                    base64Data: asset.base64Data,
+                    type: asset.type,
+                    originalFileName: asset.originalFileName, // Include original file name
+                    originalType: asset.originalType, // Include original type
+                    isExcluded: asset.isExcluded || false // Ensure isExcluded is always present, default to false
+                };
+                hasEditedAssets = true;
+            }
+        }
+    }
+
+    if (!hasEditedAssets) {
+        alert('No changes to export. Edit assets or mark them for exclusion first.');
+        console.log('FileHandling: No edited assets found for export.');
         return;
     }
 
-    const dataStr = JSON.stringify(editedAssets, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
+    const jsonString = JSON.stringify(editedDataForExport, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -372,5 +402,6 @@ export function exportChanges() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    console.log('FileHandling: Changes exported successfully.');
+    console.log('FileHandling: Changes exported to venge_mod_changes.json.');
+    alert('Changes exported to venge_mod_changes.json!');
 }
