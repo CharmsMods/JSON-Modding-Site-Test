@@ -440,11 +440,12 @@ export function updateAssetCardDisplay(fullPath, newDataUrl) { // This is the ON
 // Listen for when the DOM is fully loaded before attempting to load asset lists
 window.addEventListener('DOMContentLoaded', async () => {
     console.log("main.js: DOMContentLoaded. Starting asset list loading process.");
-    // Show loading overlay and hide app container initially
+    // Show loading overlay (it's hidden by default in HTML, so remove 'hidden')
     loadingOverlay.classList.remove('hidden');
-    appContainer.classList.add('hidden');
+    appContainer.classList.add('hidden'); // Ensure app container is hidden
 
     try {
+        console.log("main.js: Calling loadAssetLists...");
         // Load only asset lists (metadata) at startup
         const { parsedJpgAssets, parsedPngAssets, parsedMp3Assets, rawJsonData } = await loadAssetLists(updateLoadingProgress);
         
@@ -458,7 +459,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         console.log(`main.js: All asset lists loaded successfully. Total assets metadata: ${allGameAssets.length}`);
 
         // Hide loading overlay and show main app container
-        loadingOverlay.classList.add('hidden');
+        loadingOverlay.classList.add('hidden'); // Hide it using the .hidden class
         appContainer.classList.remove('hidden');
 
         // Render all assets initially (they will show placeholders/load buttons)
@@ -471,7 +472,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         console.error("main.js: Failed to load asset lists:", error);
         loadingAssetName.textContent = `Error loading asset lists: ${error.message}`;
         loadingBar.style.width = '0%';
-        // Potentially show a retry button or error message prominently
+        // Keep loading overlay visible and display error. User might need to refresh or fix files.
+        loadingOverlay.classList.remove('hidden'); // Ensure it stays visible on error
     }
 });
 
@@ -598,4 +600,4 @@ bulkOperationsModalOverlay.addEventListener('click', (event) => {
 });
 
 // Export utility functions and variables if other modules need to access them
-export { allGameAssets, selectedAssets, updateAssetCardDisplay, renderAllAssets, assetDataMaps }; // Export assetDataMaps
+export { allGameAssets, selectedAssets, updateAssetCardDisplay, renderAllAssets, assetDataMaps };
