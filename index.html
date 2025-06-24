@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Venge.io Modding Suite</title>
+    <title>Vengeance Assets Editor</title>
     <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    </head>
+</head>
 <body>
     <div id="loading-overlay" class="hidden">
         <div class="loader"></div>
-        <div id="loading-message">Loading assets into memory...</div>
-        <div id="loading-progress"></div>
+        <p id="loading-message">Loading assets...</p>
+        <p id="loading-progress"></p>
     </div>
 
     <header>
@@ -22,6 +21,7 @@
         <div class="header-right">
             <span id="selected-assets-count">0 Assets Selected</span>
             <button id="select-assets-btn" class="header-button">Select Assets</button>
+            <button id="exclude-assets-btn" class="header-button">Exclude from Export</button>
             <button id="edit-selected-btn" class="header-button" disabled>Edit Selected Assets</button>
             <button id="download-all-zip-btn" class="header-button">Download All Assets as ZIP</button>
             <button id="import-changes-btn" class="header-button">Import Changes</button>
@@ -29,50 +29,10 @@
         </div>
     </header>
 
-    <main id="asset-grid-container">
-        <div id="asset-grid"></div>
+    <main>
+        <div id="asset-grid">
+            </div>
     </main>
-
-    <div id="bulk-texture-modal" class="modal hidden">
-        <div class="modal-content">
-            <h2>Bulk Texture Operations</h2>
-            <div class="modal-options">
-                <button id="adjust-texture-btn" class="modal-option-btn active">Adjust Original Texture</button>
-                <button id="create-new-texture-btn" class="modal-option-btn">Create New Texture</button>
-                <button id="upload-new-image-btn" class="modal-option-btn">Upload New Image</button>
-            </div>
-
-            <div id="adjust-texture-section" class="modal-section">
-                <h3>Adjust Saturation, Brightness, Contrast</h3>
-                <label for="saturation-slider">Saturation:</label>
-                <input type="range" id="saturation-slider" min="0" max="200" value="100">
-                <label for="brightness-slider">Brightness:</label>
-                <input type="range" id="brightness-slider" min="0" max="200" value="100">
-                <label for="contrast-slider">Contrast:</label>
-                <input type="range" id="contrast-slider" min="0" max="200" value="100">
-                <button id="apply-adjustments-btn">Apply Adjustments</button>
-            </div>
-
-            <div id="create-new-texture-section" class="modal-section hidden">
-                <h3>Create New Texture</h3>
-                <label for="color-picker">Choose Color:</label>
-                <input type="color" id="color-picker" value="#ffffff">
-                <label for="resolution-width">Resolution (Width):</label>
-                <input type="number" id="resolution-width" value="256">
-                <label for="resolution-height">Resolution (Height):</label>
-                <input type="number" id="resolution-height" value="256">
-                <button id="generate-texture-btn">Generate New Texture</button>
-            </div>
-
-            <div id="upload-new-image-section" class="modal-section hidden">
-                <h3>Upload New Image</h3>
-                <input type="file" id="new-image-upload" accept="image/jpeg, image/png">
-                <button id="apply-uploaded-image-btn">Apply Uploaded Image</button>
-            </div>
-
-            <button class="close-button">Close</button>
-        </div>
-    </div>
 
     <div id="bulk-audio-modal" class="modal hidden">
         <div class="modal-content">
@@ -85,6 +45,17 @@
                 <h3>Upload WAV/MP3 to Replace Selected</h3>
                 <p>Upload a .wav or .mp3 file. WAV files will be converted to MP3. Other audio formats are not supported for conversion.</p>
                 <input type="file" id="new-audio-upload" accept="audio/wav, audio/mpeg">
+
+                <div id="audio-trim-controls" class="hidden">
+                    <hr style="margin: 20px 0; border-color: #eee;">
+                    <h3>Audio Trimming (Optional)</h3>
+                    <p>Adjust the start and end points of the new audio.</p>
+                    <label for="trim-start-slider">Trim Start (seconds): <span id="trim-start-value">0.00</span></label>
+                    <input type="range" id="trim-start-slider" min="0" max="100" value="0" step="0.01">
+                    <label for="trim-end-slider">Trim End (seconds): <span id="trim-end-value">0.00</span></label>
+                    <input type="range" id="trim-end-slider" min="0" max="100" value="100" step="0.01">
+                </div>
+
                 <button id="apply-uploaded-audio-btn" disabled>Apply Uploaded Audio</button>
                 <p id="audio-upload-status" style="margin-top: 10px; color: grey;"></p>
             </div>
@@ -93,14 +64,30 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://unpkg.com/lamejs@1.2.0/lame.min.js"></script>
+    <div id="bulk-image-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Bulk Image Operations</h2>
+            <div class="modal-options">
+                <button id="change-color-btn" class="modal-option-btn active">Change Color</button>
+            </div>
 
-    <script type="module" src="js/ui.js"></script>
-    <script type="module" src="js/fileHandling.js"></script>
-    <script type="module" src="js/selection.js"></script>
-    <script type="module" src="js/bulkOperations.js"></script>
-    <script type="module" src="js/export.js"></script>
+            <div id="color-change-section" class="modal-section">
+                <h3>Change Image Color</h3>
+                <label for="color-picker">Select New Color:</label>
+                <input type="color" id="color-picker" value="#FF0000">
+                <label for="color-strength-slider">Strength: <span id="color-strength-value">100%</span></label>
+                <input type="range" id="color-strength-slider" min="0" max="100" value="100">
+                <button id="apply-color-change-btn">Apply Color Change</button>
+            </div>
+            
+            <button class="close-button">Close</button>
+        </div>
+    </div>
+
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
+
     <script type="module" src="js/main.js"></script>
 </body>
 </html>

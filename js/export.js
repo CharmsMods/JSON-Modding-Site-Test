@@ -1,15 +1,11 @@
 // js/export.js
-// This file handles the logic for exporting the modified assets into ZIP files.
+// This file handles the logic for exporting assets as a ZIP file.
+import { assetData, editedAssets, base64ToBlob, getMimeType } from './fileHandling.js';
 import { showLoadingOverlay, hideLoadingOverlay } from './ui.js';
-import { assetData, editedAssets, base64ToBlob } from './fileHandling.js';
+// Note: getExcludedAssets is primarily for the UI selection Set.
+// The true source for exclusion status in export should be `editedAssets` and `assetData`.
+// import { getExcludedAssets } from './selection.js'; 
 
-// We'll need a library for ZIP creation, like JSZip. Let's assume it's loaded from a CDN.
-// For example, in index.html: <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
-/**
- * Initiates the download of all assets as a ZIP file.
- * This will include original assets for non-edited files and current (potentially edited) assets for edited files.
- */
 export async function downloadAllAssetsAsZip() {
     console.log('Export: Initiating download of all assets as ZIP.');
     const exportOption = prompt('Choose export option: "client" or "browser". (Type "client" or "browser")').toLowerCase();
@@ -23,14 +19,12 @@ export async function downloadAllAssetsAsZip() {
     showLoadingOverlay('Preparing assets for ZIP...', 'This may take a moment.');
 
     try {
-        const zip = new JSZip(); // JSZip instance
+        const zip = new JSZip();
 
-        // Base folder for the ZIP structure
         let rootFolder = '';
         if (exportOption === 'client') {
             rootFolder = 'Venge Client/';
             // Add static client folders (CSS, Resource Swapper, Skin Swapper, Userscript)
-            // Even if empty, their presence might be important for the mod structure
             zip.folder(`${rootFolder}CSS`);
             zip.folder(`${rootFolder}Resource Swapper`); // This one will contain 'files/assets'
             zip.folder(`${rootFolder}Skin Swapper`);
@@ -38,52 +32,99 @@ export async function downloadAllAssetsAsZip() {
             console.log('Export: Client export structure base folders added.');
         } else { // browser
             rootFolder = 'Venge Client Browser/';
-            // Add static browser files (dummy for now, based on browser-export-static-files.json)
-            // NOTE: In a real scenario, you'd fetch this from your 'assets' folder
-            // For now, returning an empty object from a dummy fetchJsonFile
-            const browserStaticFiles = await fetchJsonFile('assets/browser-export-static-files.json');
+            // This 'browser-export-static-files.json' would be a file you create in your 'assets' folder
+            // containing base64 data for any static files needed for the browser client export.
+            // Example structure: { "js/some_script.js": "BASE64_CONTENT_OF_SCRIPT", "css/styles.css": "BASE64_CONTENT_OF_CSS" }
+            const browserStaticFiles = await fetchJsonFile('assets/browser-export-static-files.json').catch(e => {
+                console.warn('Export: Could not load browser static files JSON. Skipping.', e);
+                return {}; // Return empty object if file not found/error
+            });
             for (const filePath in browserStaticFiles) {
                 const base64Content = browserStaticFiles[filePath];
-                // Assuming filePath includes the full path like "script.js" or "lib/data.wasm"
-                zip.file(`${rootFolder}${filePath}`, base64ToBlob(base64Content, 'application/octet-stream'));
-                console.log(`Export: Added browser static file: ${filePath}`);
+                if (!base64Content || typeof base64Content !== 'string') {
+                    console.warn(`Export: Skipping malformed or missing content for static browser file: ${filePath}`);
+                    continue;
+                }
+                try {
+                    const blob = base64ToBlob(base64Content, 'application/octet-stream');
+                    zip.file(`${rootFolder}${filePath}`, blob);
+                    console.log(`Export: Added browser static file: ${filePath}`);
+                } catch (blobError) {
+                    console.error(`Export: Failed to create blob for static browser file ${filePath}:`, blobError);
+                    alert(`Warning: Could not include static browser file ${filePath}. Check console for details.`);
+                }
             }
         }
 
         const assetsFolderPath = `${rootFolder}files/assets/`;
 
         let processedCount = 0;
+        // Count total assets for progress, excluding those that will be skipped for reasons other than exclusion (e.g., malformed data)
         const totalAssets = Object.keys(assetData).reduce((sum, folderNum) => sum + Object.keys(assetData[folderNum]).length, 0);
 
         for (const folderNumber in assetData) {
             for (const fileName in assetData[folderNumber]) {
-                const asset = assetData[folderNumber][fileName];
+                const assetKey = `${folderNumber}/${fileName}`;
+                const originalAssetInfo = assetData[folderNumber][fileName]; // Get the original and current status
+
+                // Check if the asset is explicitly marked as excluded
+                if (originalAssetInfo.isExcluded) {
+                    console.log(`Export: Skipping excluded asset: ${folderNumber}/${fileName}`);
+                    processedCount++; // Still count for progress display
+                    showLoadingOverlay('Compressing assets...', `${processedCount}/${totalAssets} files added. (Skipping excluded)`);
+                    continue; // Skip this asset, do not add to ZIP
+                }
+
                 let fileContent;
                 let mimeType;
+                let isEditedAsset = false;
 
-                // Use edited asset if available, otherwise use original
+                // Use edited asset data if it exists and is not excluded
                 if (editedAssets[folderNumber] && editedAssets[folderNumber][fileName]) {
-                    fileContent = editedAssets[folderNumber][fileName].base64Data;
-                    mimeType = getMimeType(editedAssets[folderNumber][fileName].type);
+                    const editedAsset = editedAssets[folderNumber][fileName];
+                    // Double check if the edited asset itself is marked as excluded.
+                    // This is redundant with the `originalAssetInfo.isExcluded` check above if that's kept synchronized.
+                    if (editedAsset.isExcluded) {
+                        console.log(`Export: Skipping edited asset ${folderNumber}/${fileName} due to its exclusion status.`);
+                        processedCount++;
+                        showLoadingOverlay('Compressing assets...', `${processedCount}/${totalAssets} files added. (Skipping excluded)`);
+                        continue;
+                    }
+                    fileContent = editedAsset.base64Data;
+                    mimeType = getMimeType(editedAsset.type);
+                    isEditedAsset = true;
                     console.log(`Export: Including edited asset: ${folderNumber}/${fileName}`);
                 } else {
-                    fileContent = asset.originalBase64;
-                    mimeType = getMimeType(asset.type);
+                    // Otherwise, use the original asset data
+                    fileContent = originalAssetInfo.originalBase64;
+                    mimeType = getMimeType(originalAssetInfo.type);
                     console.log(`Export: Including original asset: ${folderNumber}/${fileName}`);
                 }
 
-                const blob = base64ToBlob(fileContent, mimeType);
-                // The crucial folder structure: files/assets/long-folder-number/1/file.ext
-                const zipPath = `${assetsFolderPath}${folderNumber}/1/${fileName}`;
-                zip.file(zipPath, blob);
+                if (!fileContent || typeof fileContent !== 'string' || fileContent.length === 0) {
+                    console.error(`Export: Skipping asset ${folderNumber}/${fileName} due to invalid or empty base64 data.`);
+                    processedCount++; // Count for progress, but log error
+                    continue;
+                }
+
+                try {
+                    const blob = base64ToBlob(fileContent, mimeType);
+                    // The crucial folder structure: files/assets/long-folder-number/1/file.ext
+                    const zipPath = `${assetsFolderPath}${folderNumber}/1/${fileName}`;
+                    zip.file(zipPath, blob);
+                } catch (blobError) {
+                    console.error(`Export: Failed to create blob for asset ${folderNumber}/${fileName}:`, blobError);
+                    alert(`Warning: Could not include asset ${fileName} in ZIP. Check console for details.`);
+                    processedCount++; // Count for progress, but log error
+                    continue; // Continue with other assets even if one fails
+                }
 
                 processedCount++;
                 showLoadingOverlay('Compressing assets...', `${processedCount}/${totalAssets} files added.`);
             }
         }
 
-        console.log('Export: All assets added to ZIP object. Generating ZIP file...');
-        // Compression level set to 1 (fastest, least compression)
+        console.log('Export: All eligible assets added to ZIP object. Generating ZIP file...');
         const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } }, (metadata) => {
             if (metadata.percent) {
                 showLoadingOverlay('Generating ZIP file...', `ZIP Progress: ${metadata.percent.toFixed(2)}%`);
@@ -105,57 +146,21 @@ export async function downloadAllAssetsAsZip() {
 
     } catch (error) {
         console.error('Export: Error during ZIP creation or download:', error);
-        alert('An error occurred during ZIP export. Check console for details.');
+        alert('An error occurred during ZIP export. Check console for details. (Likely a problem with an asset\'s data)');
     } finally {
         hideLoadingOverlay();
     }
 }
 
 /**
- * Helper function to get MIME type from asset type.
- * @param {string} type - The asset type (e.g., 'jpg', 'png', 'mp3').
- * @returns {string} The corresponding MIME type.
- */
-function getMimeType(type) {
-    switch (type) {
-        case 'jpg':
-            return 'image/jpeg';
-        case 'png':
-            return 'image/png';
-        case 'mp3':
-            return 'audio/mpeg';
-        default:
-            return 'application/octet-stream';
-    }
-}
-
-/**
- * Dummy fetch for browser-export-static-files.json if it doesn't exist yet.
- * This function would be replaced with actual fetching from the 'assets' folder
- * if you had predefined static files for the browser export that were also base64 encoded.
- * For now, it returns an empty object to prevent errors.
- * @param {string} url - The URL to fetch.
- * @returns {Promise<object>} A promise resolving to an empty object for now.
+ * Helper function to fetch a JSON file.
+ * @param {string} url - The URL of the JSON file.
+ * @returns {Promise<object>} A promise that resolves with the parsed JSON data.
  */
 async function fetchJsonFile(url) {
-    console.log(`Export: Attempting to fetch browser static files from ${url}. If this file exists, ensure it's properly structured. Currently returning empty object.`);
-    // In a real scenario, you'd fetch this from your 'assets' folder
-    // For now, return an empty object to prevent errors if the file is not yet created.
-    // Example content for browser-export-static-files.json could be:
-    // {
-    //   "script.js": "base64_of_script_js",
-    //   "css/style.css": "base64_of_style_css"
-    // }
-    try {
-        const response = await fetch(url);
-        if (response.ok) {
-            return await response.json();
-        } else {
-            console.warn(`Export: ${url} not found or inaccessible. Returning empty object for browser static files.`);
-            return {};
-        }
-    } catch (error) {
-        console.warn(`Export: Error fetching ${url}. Returning empty object for browser static files. Error:`, error);
-        return {};
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
     }
+    return response.json();
 }
