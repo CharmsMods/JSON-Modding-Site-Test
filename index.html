@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Venge.io Modding Suite</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     </head>
 <body>
     <div id="loading-overlay" class="hidden">
@@ -73,7 +74,27 @@
         </div>
     </div>
 
+    <div id="bulk-audio-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Bulk Audio Operations</h2>
+            <div class="modal-options">
+                <button id="upload-new-audio-btn" class="modal-option-btn active">Upload New Audio</button>
+            </div>
+
+            <div id="upload-audio-section" class="modal-section">
+                <h3>Upload WAV/MP3 to Replace Selected</h3>
+                <p>Upload a .wav or .mp3 file. WAV files will be converted to MP3. Other audio formats are not supported for conversion.</p>
+                <input type="file" id="new-audio-upload" accept="audio/wav, audio/mpeg">
+                <button id="apply-uploaded-audio-btn" disabled>Apply Uploaded Audio</button>
+                <p id="audio-upload-status" style="margin-top: 10px; color: grey;"></p>
+            </div>
+
+            <button class="close-button">Close</button>
+        </div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://unpkg.com/lamejs@1.2.0/lame.min.js"></script>
 
     <script type="module" src="js/ui.js"></script>
     <script type="module" src="js/fileHandling.js"></script>
