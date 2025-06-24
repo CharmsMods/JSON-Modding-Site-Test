@@ -4,12 +4,11 @@ import { loadAllAssetsIntoMemory, downloadAsset, importChanges, exportChanges, a
 import { initializeSelection, clearAllSelections, selectAllDisplayedAssets, getIsSelectMode } from './selection.js';
 import { initializeBulkOperations } from './bulkOperations.js';
 import { showLoadingOverlay, hideLoadingOverlay } from './ui.js';
-import { downloadAllAssetsAsZip } from './export.js'; // <-- NEW: Import the function directly
+import { downloadAllAssetsAsZip } from './export.js'; // Import the function directly
 
-// Make assetData globally accessible for selection.js
-// This is a common pattern for managing shared state across modules
-// You could also use a more sophisticated state management system like Redux or simply pass it around.
-window.assetData = assetData; // Keep this for now as selection.js directly accesses window.assetData
+// Make assetData globally accessible for selection.js (still needed for direct access from selection.js)
+// In a larger application, consider passing it via function arguments or a proper state management pattern.
+window.assetData = assetData;
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Main: DOMContentLoaded. Initializing application...');
@@ -22,7 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('clear-search-btn').addEventListener('click', handleClearSearch);
     document.getElementById('download-all-zip-btn').addEventListener('click', () => {
         // This will now call the directly imported function
-        downloadAllAssetsAsZip(); // <-- FIXED: Call directly
+        downloadAllAssetsAsZip();
     });
     document.getElementById('import-changes-btn').addEventListener('click', handleImportChanges);
     document.getElementById('export-changes-btn').addEventListener('click', exportChanges);

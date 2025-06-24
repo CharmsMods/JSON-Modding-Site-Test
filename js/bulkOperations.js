@@ -1,8 +1,8 @@
 // js/bulkOperations.js
 // This file handles the logic for bulk operations on selected assets.
-import { getSelectedAssets, getAllowedSelectionType } from './selection.js'; // Import getAllowedSelectionType
+import { getSelectedAssets, getAllowedSelectionType } from './selection.js';
 import { openBulkOperationsModal, closeBulkOperationsModal, showLoadingOverlay, hideLoadingOverlay } from './ui.js';
-import { updateAssetInMemory } from './fileHandling.js';
+import { updateAssetInMemory, base64ToBlob, assetData } from './fileHandling.js'; // Added base64ToBlob and assetData
 
 let currentAudioPlayer = null; // To manage a single audio playback
 
@@ -24,12 +24,12 @@ export function initializeBulkOperations() {
     document.getElementById('new-image-upload').addEventListener('change', handleNewImageUpload);
     document.getElementById('apply-uploaded-image-btn').addEventListener('click', applyUploadedImage);
 
-    // Audio Modal Elements (NEW)
+    // Audio Modal Elements
     document.getElementById('upload-new-audio-btn').addEventListener('click', () => showAudioSection('upload-audio-section', 'upload-new-audio-btn'));
     document.getElementById('new-audio-upload').addEventListener('change', handleNewAudioUpload);
     document.getElementById('apply-uploaded-audio-btn').addEventListener('click', applyUploadedAudio);
 
-    // Delegated event listener for Play button on MP3 cards (NEW)
+    // Delegated event listener for Play button on MP3 cards
     document.getElementById('asset-grid').addEventListener('click', (event) => {
         const playBtn = event.target.closest('.play-audio-btn');
         if (playBtn) {
@@ -249,7 +249,7 @@ async function applyUploadedImage() {
 }
 
 
-// --- AUDIO OPERATIONS (NEW) ---
+// --- AUDIO OPERATIONS ---
 function showAudioSection(sectionId, buttonId) {
     // In this case, only one section for audio, but keep consistent with image modal
     document.querySelectorAll('#bulk-audio-modal .modal-section').forEach(section => {
@@ -366,18 +366,38 @@ async function convertWavToMp3(wavBlob) {
                 const arrayBuffer = event.target.result;
                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-                const mp3encoder = new Lame.Mp3Encoder(audioBuffer.numberOfChannels, audioContext.sampleRate);
-                const samples = audioBuffer.getChannelData(0); // Assuming mono for simplicity, or mix channels if stereo
+                // Lame.js takes samples as float32. Get channel data.
+                const channels = [];
+                for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
+                    channels.push(audioBuffer.getChannelData(i));
+                }
 
-                // If stereo, mix down or process channels separately
+                // If mono, pass one channel. If stereo, pass both. Lame.js handles up to 2 channels.
+                const mp3encoder = new Lame.Mp3Encoder(audioBuffer.numberOfChannels, audioContext.sampleRate);
                 let mp3Data = [];
                 const sampleBlockSize = 1152; // Typical block size for LAME
-                for (let i = 0; i < samples.length; i += sampleBlockSize) {
-                    const sampleChunk = samples.subarray(i, i + sampleBlockSize);
-                    const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
-                    if (mp3buf.length > 0) {
-                        mp3Data.push(mp3buf);
+
+                // Process samples in blocks
+                if (audioBuffer.numberOfChannels === 1) {
+                    for (let i = 0; i < channels[0].length; i += sampleBlockSize) {
+                        const sampleChunk = channels[0].subarray(i, i + sampleBlockSize);
+                        const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
+                        if (mp3buf.length > 0) {
+                            mp3Data.push(new Int8Array(mp3buf));
+                        }
                     }
+                } else if (audioBuffer.numberOfChannels === 2) {
+                    for (let i = 0; i < channels[0].length; i += sampleBlockSize) {
+                        const sampleChunkL = channels[0].subarray(i, i + sampleBlockSize);
+                        const sampleChunkR = channels[1].subarray(i, i + sampleBlockSize);
+                        const mp3buf = mp3encoder.encodeBuffer(sampleChunkL, sampleChunkR);
+                        if (mp3buf.length > 0) {
+                            mp3Data.push(new Int8Array(mp3buf));
+                        }
+                    }
+                } else {
+                    reject(new Error('Unsupported number of audio channels (Lame.js supports 1 or 2).'));
+                    return;
                 }
 
                 const mp3buf = mp3encoder.flush();   // Finish encoding
@@ -393,13 +413,14 @@ async function convertWavToMp3(wavBlob) {
 
             } catch (e) {
                 console.error("Lame.js conversion error:", e);
-                reject(new Error(`Audio conversion failed: ${e.message}. Ensure the WAV file is valid.`));
+                reject(new Error(`Audio conversion failed: ${e.message}. Ensure the WAV file is valid and has 1 or 2 channels.`));
             }
         };
         reader.onerror = reject;
         reader.readAsArrayBuffer(wavBlob);
     });
 }
+
 
 /**
  * Plays an MP3 asset from its Base64 data.
@@ -408,7 +429,7 @@ async function convertWavToMp3(wavBlob) {
  * @param {string} fileName - The file name of the asset.
  */
 function playMp3Asset(folderNumber, fileName) {
-    const asset = window.assetData[folderNumber]?.[fileName]; // Access from window.assetData
+    const asset = assetData[folderNumber]?.[fileName]; // Access from imported assetData
     if (!asset || asset.type !== 'mp3') {
         console.warn(`BulkOperations: Cannot play non-MP3 asset or asset not found: ${folderNumber}/${fileName}`);
         return;

@@ -6,7 +6,7 @@ const loadingOverlay = document.getElementById('loading-overlay');
 const loadingMessage = document.getElementById('loading-message');
 const loadingProgress = document.getElementById('loading-progress');
 const bulkTextureModal = document.getElementById('bulk-texture-modal');
-const bulkAudioModal = document.getElementById('bulk-audio-modal'); // NEW
+const bulkAudioModal = document.getElementById('bulk-audio-modal');
 
 /**
  * Displays the loading overlay with a message and optional progress.
@@ -47,7 +47,8 @@ export function createAssetCard(asset) {
         // For MP3s, display an audio icon or placeholder
         contentHTML = `
             <div class="audio-placeholder">
-                <i class="fas fa-volume-up"></i> <button class="play-audio-btn">Play</button> </div>
+                <i class="fas fa-volume-up"></i> <button class="play-audio-btn">Play</button>
+            </div>
         `;
     }
 
@@ -98,7 +99,7 @@ export function updateSelectedAssetsCount(count) {
  * Marks an asset card as edited and updates its preview if applicable.
  * @param {HTMLElement} cardElement - The asset card DOM element.
  * @param {string} newBase64Data - The new Base64 data (for images).
- * @param {string} newType - The new type of the asset (e.g., 'png' if converted from jpg).
+ * @param {string} newType - The new type of the asset (e.g., from jpg to png due to conversion).
  */
 export function markCardAsEdited(cardElement, newBase64Data, newType) {
     cardElement.classList.add('edited'); // Add 'edited' class for styling

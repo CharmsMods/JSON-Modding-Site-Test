@@ -29,10 +29,19 @@ export async function downloadAllAssetsAsZip() {
         let rootFolder = '';
         if (exportOption === 'client') {
             rootFolder = 'Venge Client/';
+            // Add static client folders (CSS, Resource Swapper, Skin Swapper, Userscript)
+            // Even if empty, their presence might be important for the mod structure
+            zip.folder(`${rootFolder}CSS`);
+            zip.folder(`${rootFolder}Resource Swapper`); // This one will contain 'files/assets'
+            zip.folder(`${rootFolder}Skin Swapper`);
+            zip.folder(`${rootFolder}Userscript`);
+            console.log('Export: Client export structure base folders added.');
         } else { // browser
             rootFolder = 'Venge Client Browser/';
             // Add static browser files (dummy for now, based on browser-export-static-files.json)
-            const browserStaticFiles = await fetchJsonFile('assets/browser-export-static-files.json'); // Assuming this JSON exists
+            // NOTE: In a real scenario, you'd fetch this from your 'assets' folder
+            // For now, returning an empty object from a dummy fetchJsonFile
+            const browserStaticFiles = await fetchJsonFile('assets/browser-export-static-files.json');
             for (const filePath in browserStaticFiles) {
                 const base64Content = browserStaticFiles[filePath];
                 // Assuming filePath includes the full path like "script.js" or "lib/data.wasm"
@@ -74,9 +83,10 @@ export async function downloadAllAssetsAsZip() {
         }
 
         console.log('Export: All assets added to ZIP object. Generating ZIP file...');
-        const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } }, (metadata) => {
+        // Compression level set to 1 (fastest, least compression)
+        const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } }, (metadata) => {
             if (metadata.percent) {
-                showLoadingOverlay('Generating ZIP file...', `${metadata.percent.toFixed(2)}% compressed.`);
+                showLoadingOverlay('Generating ZIP file...', `ZIP Progress: ${metadata.percent.toFixed(2)}%`);
             }
         });
 
@@ -119,10 +129,33 @@ function getMimeType(type) {
     }
 }
 
-// Dummy fetch for browser-export-static-files.json if it doesn't exist yet
+/**
+ * Dummy fetch for browser-export-static-files.json if it doesn't exist yet.
+ * This function would be replaced with actual fetching from the 'assets' folder
+ * if you had predefined static files for the browser export that were also base64 encoded.
+ * For now, it returns an empty object to prevent errors.
+ * @param {string} url - The URL to fetch.
+ * @returns {Promise<object>} A promise resolving to an empty object for now.
+ */
 async function fetchJsonFile(url) {
-    console.log(`Export: Dummy fetch for ${url}. This file needs to be created.`);
+    console.log(`Export: Attempting to fetch browser static files from ${url}. If this file exists, ensure it's properly structured. Currently returning empty object.`);
     // In a real scenario, you'd fetch this from your 'assets' folder
-    // For now, return an empty object or dummy data
-    return {};
+    // For now, return an empty object to prevent errors if the file is not yet created.
+    // Example content for browser-export-static-files.json could be:
+    // {
+    //   "script.js": "base64_of_script_js",
+    //   "css/style.css": "base64_of_style_css"
+    // }
+    try {
+        const response = await fetch(url);
+        if (response.ok) {
+            return await response.json();
+        } else {
+            console.warn(`Export: ${url} not found or inaccessible. Returning empty object for browser static files.`);
+            return {};
+        }
+    } catch (error) {
+        console.warn(`Export: Error fetching ${url}. Returning empty object for browser static files. Error:`, error);
+        return {};
+    }
 }
