@@ -122,20 +122,54 @@ export async function loadAllAssets(updateProgress) {
     const totalAssetsToProcess = parsedJpgAssets.length + parsedPngAssets.length + parsedMp3Assets.length;
     let processedAssetsCount = 0;
 
+    // Helper to extract data from the nested JSON structure
+    // This is the key change to handle the user's specific JSON format
+    const getBase64DataFromNestedJson = (jsonObj, longFolderNumber, fileName) => {
+        try {
+            // Navigate the fixed path structure: mod-client-export -> Venge Client -> Resource Swapper -> files -> assets
+            const modExport = jsonObj['mod-client-export'];
+            if (!modExport) return null;
+            const vengeClient = modExport['Venge Client'];
+            if (!vengeClient) return null;
+            const resourceSwapper = vengeClient['Resource Swapper'];
+            if (!resourceSwapper) return null;
+            const files = resourceSwapper['files'];
+            if (!files) return null;
+            const assets = files['assets'];
+            if (!assets) return null;
+
+            // Then, access by longFolderNumber, then '1', then fileName, and finally the 'data' field
+            const folderData = assets[longFolderNumber];
+            if (!folderData) return null;
+            const oneKeyData = folderData['1'];
+            if (!oneKeyData) return null;
+            const fileEntry = oneKeyData[fileName];
+            if (!fileEntry) return null;
+
+            return fileEntry.data; // This is the Base64 string we need
+        } catch (e) {
+            console.error(`fileHandler.js: Error navigating JSON for ${longFolderNumber}/${fileName}:`, e);
+            return null;
+        }
+    };
+
+
     // Helper to add data and update progress
     const addAssetsWithData = (parsedAssets, dataMap, mimeType, assetType) => {
         parsedAssets.forEach(asset => {
-            // The JSON structure is: { "long_folder_number": { "1": "base64_data" } }
-            // Or sometimes: { "long_folder_number/1/file_name.ext": "base64_data" }
-            // We need to robustly find the data.
             let base64Data = null;
-            if (dataMap[asset.longFolderNumber] && dataMap[asset.longFolderNumber]['1']) {
-                base64Data = dataMap[asset.longFolderNumber]['1'];
-            } else if (dataMap[asset.fullPath]) { // Check the full path as key
-                base64Data = dataMap[asset.fullPath];
-            } else {
-                 // Fallback: search by file name within the long folder number, if structure is like { "long_folder_number": { "fileName.ext": "base64" } }
-                if (dataMap[asset.longFolderNumber] && typeof dataMap[asset.longFolderNumber] === 'object') {
+
+            // Attempt to get data from the deeply nested structure first
+            base64Data = getBase64DataFromNestedJson(dataMap, asset.longFolderNumber, asset.fileName);
+
+            // Fallback to previous logic if the nested structure doesn't yield data
+            // (useful if other JSONs are in a flatter format, or if future JSONs change)
+            if (!base64Data) {
+                if (dataMap[asset.longFolderNumber] && dataMap[asset.longFolderNumber]['1']) {
+                    base64Data = dataMap[asset.longFolderNumber]['1'];
+                } else if (dataMap[asset.fullPath]) {
+                    base64Data = dataMap[asset.fullPath];
+                } else if (dataMap[asset.longFolderNumber] && typeof dataMap[asset.longFolderNumber] === 'object') {
                     base64Data = dataMap[asset.longFolderNumber][asset.fileName];
                 }
             }
@@ -149,7 +183,7 @@ export async function loadAllAssets(updateProgress) {
                 asset.assetType = assetType; // 'image' or 'audio'
                 allAssets.push(asset);
             } else {
-                console.warn(`fileHandler.js: Data not found for asset: ${asset.fullPath}`);
+                console.warn(`fileHandler.js: Data not found for asset: ${asset.fullPath}. Check JSON structure.`);
             }
             processedAssetsCount++;
             updateProgress(processedAssetsCount, totalAssetsToProcess, asset.fileName);
