@@ -3,91 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vengeance Assets Editor</title>
-    <link rel="stylesheet" href="css/style.css">
+    <title>Venge.io Modding Site</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="loading-overlay" class="hidden">
-        <div class="loader"></div>
-        <p id="loading-message">Loading assets...</p>
-        <p id="loading-progress"></p>
-    </div>
+    <div class="container">
+        <h1>Venge.io Modding Site</h1>
 
-    <header>
-        <div class="header-left">
-            <input type="text" id="search-bar" placeholder="Search all assets...">
-            <button id="clear-search-btn" class="header-button">Clear Search</button>
+        <div class="file-upload">
+            <label for="zipFileInput" class="custom-file-upload">
+                Upload Venge.io Client/Game Files (ZIP)
+            </label>
+            <input type="file" id="zipFileInput" accept=".zip">
+            <span id="fileNameDisplay">No file chosen</span>
+            <button id="loadZipButton">Load Files</button>
         </div>
-        <div class="header-right">
-            <span id="selected-assets-count">0 Assets Selected</span>
-            <button id="select-assets-btn" class="header-button">Select Assets</button>
-            <button id="exclude-assets-btn" class="header-button">Exclude from Export</button>
-            <button id="edit-selected-btn" class="header-button" disabled>Edit Selected Assets</button>
-            <button id="download-all-zip-btn" class="header-button">Download All Assets as ZIP</button>
-            <button id="import-changes-btn" class="header-button">Import Changes</button>
-            <button id="export-changes-btn" class="header-button">Export Changes</button>
+
+        <div class="loader hidden" id="loader">
+            <div class="spinner"></div>
+            <p id="loaderText">Loading...</p>
         </div>
-    </header>
 
-    <main>
-        <div id="asset-grid">
+        <div id="assetManagement" class="hidden">
+            <div class="controls">
+                <button id="exportModButton">Export Mod</button>
+                <button id="saveSessionButton">Save Session</button>
+                <button id="loadSessionButton">Load Session</button>
+                <button id="clearAllButton">Clear All</button>
+                <button id="selectAllButton">Select All</button>
+                <button id="deselectAllButton">Deselect All</button>
+                <button id="toggleExclusionButton">Toggle Exclusion</button>
+                <span id="selectedCount">0 selected</span>
             </div>
-    </main>
-
-    <div id="bulk-audio-modal" class="modal hidden">
-        <div class="modal-content">
-            <h2>Bulk Audio Operations</h2>
-            <div class="modal-options">
-                <button id="upload-new-audio-btn" class="modal-option-btn active">Upload New Audio</button>
-            </div>
-
-            <div id="upload-audio-section" class="modal-section">
-                <h3>Upload WAV/MP3 to Replace Selected</h3>
-                <p>Upload a .wav or .mp3 file. WAV files will be converted to MP3. Other audio formats are not supported for conversion.</p>
-                <input type="file" id="new-audio-upload" accept="audio/wav, audio/mpeg">
-
-                <div id="audio-trim-controls" class="hidden">
-                    <hr style="margin: 20px 0; border-color: #eee;">
-                    <h3>Audio Trimming (Optional)</h3>
-                    <p>Adjust the start and end points of the new audio.</p>
-                    <label for="trim-start-slider">Trim Start (seconds): <span id="trim-start-value">0.00</span></label>
-                    <input type="range" id="trim-start-slider" min="0" max="100" value="0" step="0.01">
-                    <label for="trim-end-slider">Trim End (seconds): <span id="trim-end-value">0.00</span></label>
-                    <input type="range" id="trim-end-slider" min="0" max="100" value="100" step="0.01">
+            <div id="assetList" class="asset-list">
                 </div>
-
-                <button id="apply-uploaded-audio-btn" disabled>Apply Uploaded Audio</button>
-                <p id="audio-upload-status" style="margin-top: 10px; color: grey;"></p>
-            </div>
-
-            <button class="close-button">Close</button>
         </div>
     </div>
 
-    <div id="bulk-image-modal" class="modal hidden">
+    <div id="replaceModal" class="modal">
         <div class="modal-content">
-            <h2>Bulk Image Operations</h2>
-            <div class="modal-options">
-                <button id="change-color-btn" class="modal-option-btn active">Change Color</button>
+            <span class="close-button">&times;</span>
+            <h2>Replace Asset</h2>
+            <div id="modalAssetInfo"></div>
+            <input type="file" id="replaceFileInput" accept="image/*, audio/*">
+            <label for="replaceFileInput" class="custom-file-upload">
+                Choose Replacement File
+            </label>
+            <span id="replaceFileNameDisplay">No file chosen</span>
+            
+            <div id="imageEditControls" class="hidden">
+                <h3>Image Adjustments</h3>
+                <div class="control-group">
+                    <label for="brightnessSlider">Brightness:</label>
+                    <input type="range" id="brightnessSlider" min="0" max="200" value="100">
+                    <span id="brightnessValue">100%</span>
+                </div>
+                <div class="control-group">
+                    <label for="contrastSlider">Contrast:</label>
+                    <input type="range" id="contrastSlider" min="0" max="200" value="100">
+                    <span id="contrastValue">100%</span>
+                </div>
+                <div class="control-group">
+                    <label for="saturationSlider">Saturation:</label>
+                    <input type="range" id="saturationSlider" min="0" max="200" value="100">
+                    <span id="saturationValue">100%</span>
+                </div>
+                <div class="control-group">
+                    <label for="colorFillPicker">Color Fill:</label>
+                    <input type="color" id="colorFillPicker" value="#ffffff">
+                </div>
+                <button id="applyEditsButton">Apply Edits</button>
             </div>
 
-            <div id="color-change-section" class="modal-section">
-                <h3>Change Image Color</h3>
-                <label for="color-picker">Select New Color:</label>
-                <input type="color" id="color-picker" value="#FF0000">
-                <label for="color-strength-slider">Strength: <span id="color-strength-value">100%</span></label>
-                <input type="range" id="color-strength-slider" min="0" max="100" value="100">
-                <button id="apply-color-change-btn">Apply Color Change</button>
+            <div id="audioEditControls" class="hidden">
+                <h3>Audio Adjustments (Coming Soon)</h3>
+                <p>Advanced audio editing is not yet implemented.</p>
             </div>
-            
-            <button class="close-button">Close</button>
+
+            <button id="confirmReplaceButton">Confirm Replacement</button>
         </div>
     </div>
 
+    <div id="exportOptionsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>Export Options</h2>
+            <div class="export-type-selection">
+                <label>
+                    <input type="radio" name="exportFormat" value="zip" checked> Export as ZIP Archive
+                </label>
+                <label>
+                    <input type="radio" name="exportFormat" value="folder"> Export as Uncompressed Folder
+                </label>
+            </div>
+            <div class="export-type-selection">
+                <label>
+                    <input type="radio" name="exportTarget" value="client" checked> Client Export (for Venge.io client)
+                </label>
+                <label>
+                    <input type="radio" name="exportTarget" value="browser"> Browser Export (download directly)
+                </label>
+            </div>
+            <button id="startExportButton">Start Export</button>
+        </div>
+    </div>
+
+    <canvas id="imageProcessingCanvas" style="display: none;"></canvas>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
-    <script type="module" src="js/main.js"></script>
+    <script src="utils.js" type="module"></script>
+    <script src="fileLoader.js" type="module"></script>
+    <script src="exportImport.js" type="module"></script>
+    <script src="main.js" type="module"></script>
 </body>
 </html>
