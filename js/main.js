@@ -1,7 +1,7 @@
 // js/main.js
 
 // Import necessary functions from fileHandler.js
-import { loadAllAssets } from './fileHandler.js';
+import { loadAssetLists, loadAssetDataOnDemand } from './fileHandler.js'; // loadAssetDataOnDemand is new
 // Import bulkTextureOperations.js to activate its event listeners
 import './bulkTextureOperations.js';
 // Import downloadAllAssetsAsZip for zip functionality
@@ -12,7 +12,10 @@ import { exportChanges, importChanges } from './sessionManager.js';
 
 // --- Global State Variables ---
 // Store all loaded assets here. This will be the main source of truth for asset data.
+// Initially, this will only contain metadata, not Base64 data.
 let allGameAssets = [];
+// Store the JSON data maps (e.g., jpgData, pngData, mp3Data) so we can access them on demand
+let assetDataMaps = { jpg: null, png: null, mp3: null }; // Will hold the full JSON structures
 // Keep track of currently selected assets for bulk operations.
 let selectedAssets = new Set();
 // Flag to indicate if the application is in selection mode.
@@ -31,8 +34,8 @@ const editSelectedBtn = document.getElementById('edit-selected-btn');
 const selectModeBtn = document.getElementById('select-mode-btn');
 const selectAllBtn = document.getElementById('select-all-btn');
 const downloadAllBtn = document.getElementById('download-all-btn');
-const importChangesBtn = document.getElementById('import-changes-btn'); // New reference for import button
-const exportChangesBtn = document.getElementById('export-changes-btn'); // New reference for export button
+const importChangesBtn = document.getElementById('import-changes-btn');
+const exportChangesBtn = document.getElementById('export-changes-btn');
 
 
 // --- Functions to update UI ---
@@ -42,7 +45,7 @@ const exportChangesBtn = document.getElementById('export-changes-btn'); // New r
  * @param {number} loadedCount - The number of assets processed so far.
  * @param {number} totalCount - The total number of assets to process.
  * @param {string} assetName - The name of the asset currently being loaded/processed.
- * @comment This function is passed as a callback to `loadAllAssets` and `downloadAllAssetsAsZip` to provide real-time feedback to the user.
+ * @comment This function is passed as a callback to various loading/zipping functions.
  */
 function updateLoadingProgress(loadedCount, totalCount, assetName) {
     console.log(`main.js: Loading progress - ${loadedCount}/${totalCount} (${assetName})`);
@@ -54,7 +57,8 @@ function updateLoadingProgress(loadedCount, totalCount, assetName) {
 /**
  * Renders a single asset card to the DOM.
  * @param {object} asset - The asset object containing details like longFolderNumber, fileName, dataUrl, etc.
- * @comment This function creates the HTML structure for each asset card.
+ * @comment This function creates the HTML structure for each asset card. It now includes a 'Load' button
+ * or placeholder if the data is not yet loaded.
  */
 function renderAssetCard(asset) {
     const card = document.createElement('div');
@@ -78,33 +82,67 @@ function renderAssetCard(asset) {
         card.classList.remove('bg-selected-card', 'border-cyan-500', 'border-2');
     }
 
-    // Display image for image assets, or a placeholder/icon for audio
-    if (asset.assetType === 'image') {
-        const img = document.createElement('img');
-        img.src = asset.dataUrl;
-        img.alt = asset.fileName;
-        img.classList.add('mb-3', 'rounded-md', 'object-contain', 'h-32', 'w-full'); // Tailwind classes for image styling
-        // Fallback for broken images
-        img.onerror = (e) => {
-            console.error(`main.js: Failed to load image for asset ${asset.fullPath}`, e);
-            img.src = `https://placehold.co/120x120/4a5568/a0aec0?text=Image+Error`; // Placeholder image
-            img.alt = "Image Load Error";
+    // --- Asset Content (Image/Audio Preview or Placeholder) ---
+    const assetContentWrapper = document.createElement('div');
+    assetContentWrapper.classList.add('asset-content-wrapper', 'mb-3', 'rounded-md', 'object-contain', 'h-32', 'w-full', 'flex', 'items-center', 'justify-center', 'text-gray-400', 'bg-gray-700');
+
+    if (asset.dataUrl) { // If data is already loaded, display it
+        if (asset.assetType === 'image') {
+            const img = document.createElement('img');
+            img.src = asset.dataUrl;
+            img.alt = asset.fileName;
+            img.classList.add('object-contain', 'h-full', 'w-full');
+            img.onerror = (e) => {
+                console.error(`main.js: Failed to load image for asset ${asset.fullPath}`, e);
+                img.src = `https://placehold.co/120x120/4a5568/a0aec0?text=Image+Error`;
+                img.alt = "Image Load Error";
+            };
+            assetContentWrapper.appendChild(img);
+        } else if (asset.assetType === 'audio') {
+            const audioIcon = document.createElement('div');
+            audioIcon.classList.add('text-6xl');
+            audioIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 6v.008l12-3v.008" />
+                                </svg>`;
+            assetContentWrapper.appendChild(audioIcon);
+            // Optional: Add a small audio player for preview (consider impact on performance for many audio files)
+            const audioPlayer = document.createElement('audio');
+            audioPlayer.src = asset.dataUrl;
+            audioPlayer.controls = true;
+            audioPlayer.classList.add('w-full', 'mt-2');
+            card.appendChild(audioPlayer); // Audio player outside wrapper for better layout
+        }
+    } else { // If data is not loaded, show placeholder or load button
+        const placeholderText = document.createElement('span');
+        placeholderText.textContent = `Click to load ${asset.fileExtension.toUpperCase()}`;
+        placeholderText.classList.add('text-center', 'text-sm', 'p-2');
+        assetContentWrapper.appendChild(placeholderText);
+
+        // Add an explicit load button for images/audio
+        const loadButton = document.createElement('button');
+        loadButton.classList.add('absolute', 'px-3', 'py-1', 'bg-blue-600', 'hover:bg-blue-700', 'text-white', 'rounded-md', 'text-xs', 'transition', 'duration-200');
+        loadButton.textContent = 'Load Data';
+        loadButton.onclick = async (e) => {
+            e.stopPropagation(); // Prevent card selection
+            loadButton.disabled = true;
+            loadButton.textContent = 'Loading...';
+            try {
+                // Call the on-demand loading function for this specific asset
+                await loadAssetDataOnDemand(asset, assetDataMaps); // Pass assetDataMaps here
+                updateAssetCardDisplay(asset.fullPath, asset.dataUrl); // Refresh the card display
+                console.log(`main.js: On-demand loaded data for ${asset.fileName}`);
+            } catch (error) {
+                console.error(`main.js: Failed to load data for ${asset.fileName} on demand:`, error);
+                loadButton.textContent = 'Load Failed';
+            } finally {
+                loadButton.disabled = false;
+            }
         };
-        card.appendChild(img);
-    } else if (asset.assetType === 'audio') {
-        const audioIcon = document.createElement('div');
-        audioIcon.classList.add('mb-3', 'text-6xl', 'text-gray-400');
-        audioIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 6v.008l12-3v.008" />
-                            </svg>`;
-        card.appendChild(audioIcon);
-        // Optional: Add a small audio player for preview (consider impact on performance for many audio files)
-        // const audioPlayer = document.createElement('audio');
-        // audioPlayer.src = asset.dataUrl;
-        // audioPlayer.controls = true;
-        // audioPlayer.classList.add('w-full', 'mt-2');
-        // card.appendChild(audioPlayer);
+        assetContentWrapper.classList.add('relative'); // Make wrapper relative for absolute positioning of button
+        assetContentWrapper.appendChild(loadButton);
     }
+    card.appendChild(assetContentWrapper);
+
 
     const folderNumDiv = document.createElement('div');
     folderNumDiv.classList.add('text-sm', 'font-semibold', 'text-gray-300', 'mb-1');
@@ -141,8 +179,14 @@ function renderAssetCard(asset) {
     const downloadBtn = document.createElement('button');
     downloadBtn.classList.add('px-3', 'py-1', 'bg-emerald-600', 'hover:bg-emerald-700', 'text-white', 'rounded-md', 'text-xs', 'transition', 'duration-200');
     downloadBtn.textContent = 'Download';
-    downloadBtn.onclick = (e) => {
+    downloadBtn.onclick = async (e) => {
         e.stopPropagation(); // Prevent card selection when button is clicked
+        // If data isn't loaded, load it before downloading
+        if (!asset.dataUrl) {
+            console.log(`main.js: On-demand loading ${asset.fileName} for download.`);
+            await loadAssetDataOnDemand(asset, assetDataMaps); // Load data
+            updateAssetCardDisplay(asset.fullPath, asset.dataUrl); // Update card visually (optional but good practice)
+        }
         console.log(`main.js: Initiating download for ${asset.fileName}`);
         const link = document.createElement('a');
         link.href = asset.dataUrl;
@@ -336,14 +380,51 @@ export function updateAssetCardDisplay(fullPath, newDataUrl) {
 
         const cardElement = document.getElementById(`asset-card-${asset.longFolderNumber}-${asset.fileName.replace(/\./g, '-')}`);
         if (cardElement) {
-            // Update image source if it's an image asset
-            if (asset.assetType === 'image') {
-                const imgElement = cardElement.querySelector('img');
-                if (imgElement) {
-                    imgElement.src = newDataUrl;
-                    console.log(`main.js: Updated image for card ${asset.fileName}`);
+            // Remove existing image/audio player if any
+            const existingMedia = cardElement.querySelector('.asset-content-wrapper img, .asset-content-wrapper audio');
+            if (existingMedia) {
+                existingMedia.remove();
+            }
+            // Remove the Load Data button if it exists
+            const loadBtn = cardElement.querySelector('.asset-content-wrapper button');
+            if (loadBtn) {
+                loadBtn.remove();
+            }
+            const placeholderSpan = cardElement.querySelector('.asset-content-wrapper span');
+            if (placeholderSpan) {
+                placeholderSpan.remove();
+            }
+
+
+            // Re-render the content based on the updated asset.dataUrl
+            const assetContentWrapper = cardElement.querySelector('.asset-content-wrapper');
+            if (assetContentWrapper) {
+                if (asset.assetType === 'image') {
+                    const img = document.createElement('img');
+                    img.src = asset.dataUrl;
+                    img.alt = asset.fileName;
+                    img.classList.add('object-contain', 'h-full', 'w-full');
+                    img.onerror = (e) => {
+                        console.error(`main.js: Failed to load image for asset ${asset.fullPath}`, e);
+                        img.src = `https://placehold.co/120x120/4a5568/a0aec0?text=Image+Error`;
+                        img.alt = "Image Load Error";
+                    };
+                    assetContentWrapper.appendChild(img);
+                } else if (asset.assetType === 'audio') {
+                    const audioIcon = document.createElement('div');
+                    audioIcon.classList.add('text-6xl');
+                    audioIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 6v.008l12-3v.008" />
+                                        </svg>`;
+                    assetContentWrapper.appendChild(audioIcon);
+                    const audioPlayer = document.createElement('audio');
+                    audioPlayer.src = asset.dataUrl;
+                    audioPlayer.controls = true;
+                    audioPlayer.classList.add('w-full', 'mt-2');
+                    cardElement.appendChild(audioPlayer); // Append to card, not wrapper, for consistent layout
                 }
             }
+
             // Add white border to indicate it's edited
             cardElement.classList.add('border-2', 'border-white');
             console.log(`main.js: Marked card for ${asset.fileName} as edited.`);
@@ -356,31 +437,39 @@ export function updateAssetCardDisplay(fullPath, newDataUrl) {
 
 // --- Event Listeners ---
 
-// Listen for when the DOM is fully loaded before attempting to load assets
+// Listen for when the DOM is fully loaded before attempting to load asset lists
 window.addEventListener('DOMContentLoaded', async () => {
-    console.log("main.js: DOMContentLoaded. Starting asset loading process.");
+    console.log("main.js: DOMContentLoaded. Starting asset list loading process.");
     // Show loading overlay and hide app container initially
     loadingOverlay.classList.remove('hidden');
     appContainer.classList.add('hidden');
 
     try {
-        // Load all assets and update progress using the callback
-        allGameAssets = await loadAllAssets(updateLoadingProgress);
-        console.log(`main.js: All assets loaded successfully. Total: ${allGameAssets.length}`);
+        // Load only asset lists (metadata) at startup
+        const { parsedJpgAssets, parsedPngAssets, parsedMp3Assets, rawJsonData } = await loadAssetLists(updateLoadingProgress);
+        
+        allGameAssets = [
+            ...parsedJpgAssets,
+            ...parsedPngAssets,
+            ...parsedMp3Assets
+        ];
+        assetDataMaps = rawJsonData; // Store the raw JSON data for on-demand loading later
+
+        console.log(`main.js: All asset lists loaded successfully. Total assets metadata: ${allGameAssets.length}`);
 
         // Hide loading overlay and show main app container
         loadingOverlay.classList.add('hidden');
         appContainer.classList.remove('hidden');
 
-        // Render all assets initially
+        // Render all assets initially (they will show placeholders/load buttons)
         renderAllAssets(allGameAssets);
 
         // Debugging: Log first few assets to console
-        console.log("main.js: First 5 loaded assets:", allGameAssets.slice(0, 5));
+        console.log("main.js: First 5 loaded assets (metadata only):", allGameAssets.slice(0, 5));
 
     } catch (error) {
-        console.error("main.js: Failed to load assets:", error);
-        loadingAssetName.textContent = `Error loading assets: ${error.message}`;
+        console.error("main.js: Failed to load asset lists:", error);
+        loadingAssetName.textContent = `Error loading asset lists: ${error.message}`;
         loadingBar.style.width = '0%';
         // Potentially show a retry button or error message prominently
     }
@@ -406,7 +495,24 @@ downloadAllBtn.addEventListener('click', async () => {
         loadingOverlay.classList.remove('hidden'); // Show loading overlay during zipping
         loadingAssetName.textContent = `Preparing ${exportType} ZIP...`;
         loadingBar.style.width = '0%';
+
         try {
+            // Before zipping, ensure all selected assets have their data loaded
+            const assetsToLoadBeforeZip = [];
+            selectedAssets.forEach(fullPath => {
+                const asset = allGameAssets.find(a => a.fullPath === fullPath);
+                if (asset && !asset.dataUrl) {
+                    assetsToLoadBeforeZip.push(asset);
+                }
+            });
+
+            if (assetsToLoadBeforeZip.length > 0) {
+                console.log(`main.js: Loading data for ${assetsToLoadBeforeZip.length} selected assets before zipping...`);
+                // Use Promise.all to load them concurrently
+                await Promise.all(assetsToLoadBeforeZip.map(asset => loadAssetDataOnDemand(asset, assetDataMaps)));
+                console.log("main.js: All selected assets data loaded for zipping.");
+            }
+
             await downloadAllAssetsAsZip(exportType, updateLoadingProgress);
             console.log(`main.js: ${exportType} ZIP process completed.`);
         } catch (error) {
@@ -436,12 +542,46 @@ exportChangesBtn.addEventListener('click', exportChanges);
 const bulkOperationsModalOverlay = document.getElementById('bulk-operations-modal-overlay');
 const closeModalBtn = document.getElementById('close-modal-btn');
 
-editSelectedBtn.addEventListener('click', () => {
+editSelectedBtn.addEventListener('click', async () => {
     if (selectedAssets.size > 0) {
         console.log("main.js: Opening bulk operations modal for selected assets.");
-        bulkOperationsModalOverlay.classList.add('visible');
+        loadingOverlay.classList.remove('hidden');
+        loadingAssetName.textContent = `Loading data for selected assets...`;
+        loadingBar.style.width = '0%';
+
+        try {
+            // Load data for all currently selected assets before opening the modal
+            const assetsToLoad = [];
+            selectedAssets.forEach(fullPath => {
+                const asset = allGameAssets.find(a => a.fullPath === fullPath);
+                if (asset && !asset.dataUrl) { // Only load if not already loaded
+                    assetsToLoad.push(asset);
+                }
+            });
+
+            if (assetsToLoad.length > 0) {
+                console.log(`main.js: Loading data for ${assetsToLoad.length} selected assets for editing...`);
+                // Use Promise.all to load them concurrently
+                await Promise.all(assetsToLoad.map(asset => loadAssetDataOnDemand(asset, assetDataMaps)));
+                console.log("main.js: All selected assets data loaded for editing.");
+                // After loading, update their displays
+                assetsToLoad.forEach(asset => updateAssetCardDisplay(asset.fullPath, asset.dataUrl));
+            } else {
+                console.log("main.js: All selected assets already have data loaded.");
+            }
+
+            loadingOverlay.classList.add('hidden'); // Hide loading overlay
+            bulkOperationsModalOverlay.classList.add('visible'); // Show modal
+        } catch (error) {
+            console.error("main.js: Error loading data for selected assets:", error);
+            loadingAssetName.textContent = `Error loading selected assets: ${error.message}`;
+            loadingBar.style.width = '0%';
+            // Keep loading overlay visible or show specific error message
+            // Consider a retry or close button on the error state
+        }
     } else {
         console.warn("main.js: Attempted to open modal with no assets selected.");
+        // We could show a simple message box here instead of console.warn
     }
 });
 
@@ -458,4 +598,4 @@ bulkOperationsModalOverlay.addEventListener('click', (event) => {
 });
 
 // Export utility functions and variables if other modules need to access them
-export { allGameAssets, selectedAssets, updateAssetCardDisplay, renderAllAssets };
+export { allGameAssets, selectedAssets, updateAssetCardDisplay, renderAllAssets, assetDataMaps }; // Export assetDataMaps

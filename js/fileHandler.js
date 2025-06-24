@@ -1,12 +1,11 @@
 // js/fileHandler.js
 
-import { createDataURL } from './utils.js'; // Import utility for creating data URLs if needed
+import { createDataURL } from './utils.js';
 
 /**
  * Fetches a text file and returns its content.
  * @param {string} url - The URL of the text file.
  * @returns {Promise<string>} A promise that resolves with the text content.
- * @comment This function is generic for fetching any plain text file, like our asset lists.
  */
 async function fetchTextFile(url) {
     console.log(`fileHandler.js: Fetching text file: ${url}`);
@@ -20,7 +19,7 @@ async function fetchTextFile(url) {
         return text;
     } catch (error) {
         console.error(`fileHandler.js: Error fetching text file ${url}:`, error);
-        throw error; // Re-throw to be handled by the caller
+        throw error;
     }
 }
 
@@ -28,7 +27,6 @@ async function fetchTextFile(url) {
  * Fetches a JSON file and returns its parsed content.
  * @param {string} url - The URL of the JSON file.
  * @returns {Promise<object>} A promise that resolves with the parsed JSON object.
- * @comment This function is generic for fetching JSON data, like our asset structure files.
  */
 async function fetchJsonFile(url) {
     console.log(`fileHandler.js: Fetching JSON file: ${url}`);
@@ -42,7 +40,7 @@ async function fetchJsonFile(url) {
         return json;
     } catch (error) {
         console.error(`fileHandler.js: Error fetching JSON file ${url}:`, error);
-        throw error; // Re-throw to be handled by the caller
+        throw error;
     }
 }
 
@@ -52,8 +50,6 @@ async function fetchJsonFile(url) {
  * @param {string} textContent - The raw text content of the list file.
  * @param {string} type - The type of asset (e.g., 'image', 'audio').
  * @returns {Array<object>} An array of asset descriptor objects.
- * @comment This function transforms the simple text lists into a structured array
- * that's easier to work with in our application.
  */
 function parseAssetList(textContent, type) {
     console.log(`fileHandler.js: Parsing ${type} asset list.`);
@@ -65,19 +61,20 @@ function parseAssetList(textContent, type) {
             return null;
         }
         const longFolderNumber = parts[0];
-        // Re-join parts from index 1 onwards to handle file names with spaces if any
         const fileName = parts.slice(1).join(' ');
         const fileExtension = fileName.split('.').pop();
-        const fullPath = `${longFolderNumber}/1/${fileName}`; // Construct the full path based on game structure
+        const fullPath = `${longFolderNumber}/1/${fileName}`;
         return {
             longFolderNumber,
             fileName,
             fileExtension,
             type, // 'image' or 'audio'
             fullPath,
-            dataUrl: null, // Placeholder for actual image data URL
-            originalDataUrl: null, // To keep track of the original for reset/comparison
-            isEdited: false // Flag to track if the asset has been modified
+            dataUrl: null, // This will be loaded on demand
+            originalDataUrl: null, // This will be populated once dataUrl is loaded
+            mimeType: type === 'image' ? `image/${fileExtension === 'jpg' ? 'jpeg' : fileExtension}` : `audio/mpeg`, // Pre-determine MIME type
+            assetType: type,
+            isEdited: false
         };
     }).filter(asset => asset !== null);
     console.log(`fileHandler.js: Parsed ${assets.length} ${type} assets.`);
@@ -85,116 +82,136 @@ function parseAssetList(textContent, type) {
 }
 
 /**
- * Loads all asset lists and their corresponding JSON data files.
- * Combines list information with base64 data from JSONs.
- * @param {Function} updateProgress - Callback function to update loading progress UI.
- * @returns {Promise<Array<object>>} A promise that resolves with a combined array of all assets.
- * @comment This is the main function for loading all initial game assets.
+ * Helper to extract Base64 data from the nested JSON structure.
+ * This is designed for the 'mod-client-export' format.
+ * @param {object} jsonObj - The full JSON object loaded from a _files_structure.json file.
+ * @param {string} longFolderNumber - The folder ID (e.g., "29398287").
+ * @param {string} fileName - The file name (e.g., "Hit-sound.mp3").
+ * @returns {string | null} The Base64 data string, or null if not found.
  */
-export async function loadAllAssets(updateProgress) {
-    console.log("fileHandler.js: Starting to load all assets...");
-    const assetLists = {
-        jpg: await fetchTextFile('assets/jpglist.txt'),
-        png: await fetchTextFile('assets/pnglist.txt'),
-        mp3: await fetchTextFile('assets/mp3list.txt')
-    };
+const getBase64DataFromNestedJson = (jsonObj, longFolderNumber, fileName) => {
+    try {
+        const modExport = jsonObj['mod-client-export'];
+        if (!modExport) return null;
+        const vengeClient = modExport['Venge Client'];
+        if (!vengeClient) return null;
+        const resourceSwapper = vengeClient['Resource Swapper'];
+        if (!resourceSwapper) return null;
+        const files = resourceSwapper['files'];
+        if (!files) return null;
+        const assets = files['assets'];
+        if (!assets) return null;
 
-    const assetDataPromises = {
-        jpg: fetchJsonFile('assets/jpg_files_structure.json'),
-        png: fetchJsonFile('assets/png_files_structure.json'),
-        mp3: fetchJsonFile('assets/mp3_files_structure.json')
-    };
+        const folderData = assets[longFolderNumber];
+        if (!folderData) return null;
+        const oneKeyData = folderData['1'];
+        if (!oneKeyData) return null;
+        const fileEntry = oneKeyData[fileName];
+        if (!fileEntry) return null;
 
-    // Wait for all JSON data to be fetched
-    const [jpgData, pngData, mp3Data] = await Promise.all([
-        assetDataPromises.jpg,
-        assetDataPromises.png,
-        assetDataPromises.mp3
+        return fileEntry.data;
+    } catch (e) {
+        console.error(`fileHandler.js: Error navigating JSON for ${longFolderNumber}/${fileName}:`, e);
+        return null;
+    }
+};
+
+/**
+ * Loads only the asset lists (metadata) at application startup.
+ * The actual Base64 data from JSON files is NOT loaded here.
+ * @param {Function} updateProgress - Callback to update loading progress UI.
+ * @returns {Promise<{parsedJpgAssets: Array<object>, parsedPngAssets: Array<object>, parsedMp3Assets: Array<object>, rawJsonData: object}>}
+ * An object containing arrays of parsed assets (metadata only) and the raw JSON data maps.
+ * @comment This function is called once at startup to quickly populate the grid with placeholders.
+ */
+export async function loadAssetLists(updateProgress) {
+    console.log("fileHandler.js: Starting to load asset lists (metadata only)...");
+
+    // Fetch all text list files
+    const [jpgListText, pngListText, mp3ListText] = await Promise.all([
+        fetchTextFile('assets/jpglist.txt'),
+        fetchTextFile('assets/pnglist.txt'),
+        fetchTextFile('assets/mp3list.txt')
     ]);
 
-    const parsedJpgAssets = parseAssetList(assetLists.jpg, 'image');
-    const parsedPngAssets = parseAssetList(assetLists.png, 'image');
-    const parsedMp3Assets = parseAssetList(assetLists.mp3, 'audio');
+    // Parse text lists into asset metadata objects
+    const parsedJpgAssets = parseAssetList(jpgListText, 'image');
+    const parsedPngAssets = parseAssetList(pngListText, 'image');
+    const parsedMp3Assets = parseAssetList(mp3ListText, 'audio');
 
-    let allAssets = [];
+    // Fetch all JSON data files, but don't process them yet. Just store the raw data.
+    const [jpgData, pngData, mp3Data] = await Promise.all([
+        fetchJsonFile('assets/jpg_files_structure.json'),
+        fetchJsonFile('assets/png_files_structure.json'),
+        fetchJsonFile('assets/mp3_files_structure.json')
+    ]);
 
-    // Combine assets with their Base64 data
-    const totalAssetsToProcess = parsedJpgAssets.length + parsedPngAssets.length + parsedMp3Assets.length;
-    let processedAssetsCount = 0;
-
-    // Helper to extract data from the nested JSON structure
-    // This is the key change to handle the user's specific JSON format
-    const getBase64DataFromNestedJson = (jsonObj, longFolderNumber, fileName) => {
-        try {
-            // Navigate the fixed path structure: mod-client-export -> Venge Client -> Resource Swapper -> files -> assets
-            const modExport = jsonObj['mod-client-export'];
-            if (!modExport) return null;
-            const vengeClient = modExport['Venge Client'];
-            if (!vengeClient) return null;
-            const resourceSwapper = vengeClient['Resource Swapper'];
-            if (!resourceSwapper) return null;
-            const files = resourceSwapper['files'];
-            if (!files) return null;
-            const assets = files['assets'];
-            if (!assets) return null;
-
-            // Then, access by longFolderNumber, then '1', then fileName, and finally the 'data' field
-            const folderData = assets[longFolderNumber];
-            if (!folderData) return null;
-            const oneKeyData = folderData['1'];
-            if (!oneKeyData) return null;
-            const fileEntry = oneKeyData[fileName];
-            if (!fileEntry) return null;
-
-            return fileEntry.data; // This is the Base64 string we need
-        } catch (e) {
-            console.error(`fileHandler.js: Error navigating JSON for ${longFolderNumber}/${fileName}:`, e);
-            return null;
-        }
+    // Store the raw JSON data for on-demand access
+    const rawJsonData = {
+        jpg: jpgData,
+        png: pngData,
+        mp3: mp3Data
     };
 
+    // This initial progress update reflects only the list loading
+    const totalAssetsMetadata = parsedJpgAssets.length + parsedPngAssets.length + parsedMp3Assets.length;
+    updateProgress(totalAssetsMetadata, totalAssetsMetadata, "Asset lists loaded.");
 
-    // Helper to add data and update progress
-    const addAssetsWithData = (parsedAssets, dataMap, mimeType, assetType) => {
-        parsedAssets.forEach(asset => {
-            let base64Data = null;
-
-            // Attempt to get data from the deeply nested structure first
-            base64Data = getBase64DataFromNestedJson(dataMap, asset.longFolderNumber, asset.fileName);
-
-            // Fallback to previous logic if the nested structure doesn't yield data
-            // (useful if other JSONs are in a flatter format, or if future JSONs change)
-            if (!base64Data) {
-                if (dataMap[asset.longFolderNumber] && dataMap[asset.longFolderNumber]['1']) {
-                    base64Data = dataMap[asset.longFolderNumber]['1'];
-                } else if (dataMap[asset.fullPath]) {
-                    base64Data = dataMap[asset.fullPath];
-                } else if (dataMap[asset.longFolderNumber] && typeof dataMap[asset.longFolderNumber] === 'object') {
-                    base64Data = dataMap[asset.longFolderNumber][asset.fileName];
-                }
-            }
-
-
-            if (base64Data) {
-                // Prepend data URL prefix as it's typically just the raw base64 data in the JSON
-                asset.dataUrl = createDataURL(base64Data, mimeType);
-                asset.originalDataUrl = asset.dataUrl; // Store original for reset
-                asset.mimeType = mimeType;
-                asset.assetType = assetType; // 'image' or 'audio'
-                allAssets.push(asset);
-            } else {
-                console.warn(`fileHandler.js: Data not found for asset: ${asset.fullPath}. Check JSON structure.`);
-            }
-            processedAssetsCount++;
-            updateProgress(processedAssetsCount, totalAssetsToProcess, asset.fileName);
-        });
-    };
-
-    addAssetsWithData(parsedJpgAssets, jpgData, 'image/jpeg', 'image');
-    addAssetsWithData(parsedPngAssets, pngData, 'image/png', 'image');
-    addAssetsWithData(parsedMp3Assets, mp3Data, 'audio/mpeg', 'audio'); // Assuming mp3 is audio/mpeg
-
-    console.log(`fileHandler.js: Total assets loaded: ${allAssets.length}`);
-    return allAssets;
+    console.log(`fileHandler.js: All asset lists loaded. Total metadata items: ${totalAssetsMetadata}`);
+    return { parsedJpgAssets, parsedPngAssets, parsedMp3Assets, rawJsonData };
 }
 
+
+/**
+ * Loads the Base64 data for a specific asset on demand.
+ * This function modifies the provided asset object in place.
+ * @param {object} asset - The asset object (from `allGameAssets`) to populate with data.
+ * @param {object} assetDataMaps - An object containing the raw JSON data for each type (jpg, png, mp3).
+ * @returns {Promise<void>} A promise that resolves when the asset's dataUrl is populated.
+ * @comment This is the core of the on-demand loading.
+ */
+export async function loadAssetDataOnDemand(asset, assetDataMaps) {
+    console.log(`fileHandler.js: Attempting to load data on demand for ${asset.fileName} (${asset.longFolderNumber})...`);
+
+    if (asset.dataUrl) {
+        console.log(`fileHandler.js: Data for ${asset.fileName} already loaded.`);
+        return; // Data already present, no need to re-load
+    }
+
+    let rawDataJson = null;
+    let mimeType = '';
+
+    // Determine which JSON data map to use based on asset type
+    if (asset.assetType === 'image') {
+        if (asset.fileExtension === 'jpg') {
+            rawDataJson = assetDataMaps.jpg;
+            mimeType = 'image/jpeg';
+        } else if (asset.fileExtension === 'png') {
+            rawDataJson = assetDataMaps.png;
+            mimeType = 'image/png';
+        }
+    } else if (asset.assetType === 'audio' && asset.fileExtension === 'mp3') {
+        rawDataJson = assetDataMaps.mp3;
+        mimeType = 'audio/mpeg';
+    }
+
+    if (!rawDataJson) {
+        console.error(`fileHandler.js: No raw JSON data map found for asset type: ${asset.assetType}`);
+        throw new Error(`Could not find data source for asset: ${asset.fileName}`);
+    }
+
+    // Extract the Base64 data using the helper
+    const base64Data = getBase64DataFromNestedJson(rawDataJson, asset.longFolderNumber, asset.fileName);
+
+    if (base64Data) {
+        asset.dataUrl = createDataURL(base64Data, mimeType);
+        asset.originalDataUrl = asset.dataUrl; // Set originalDataUrl when data is first loaded
+        console.log(`fileHandler.js: Successfully loaded data for ${asset.fileName}.`);
+    } else {
+        console.error(`fileHandler.js: Base64 data not found in JSON for ${asset.fileName}.`);
+        throw new Error(`Data not found for ${asset.fileName}`);
+    }
+}
+
+
+console.log("fileHandler.js: File Loading and Parsing module loaded.");
