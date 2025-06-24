@@ -1,0 +1,142 @@
+/* General styling for the entire site */
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #1a202c; /* Dark background */
+    color: #e2e8f0; /* Light text color */
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh; /* Ensure body takes full viewport height */
+    /* Tailwind's selection utility is included directly in HTML for simplicity */
+}
+
+/* Basic container for the app, handles responsive padding */
+#app-container {
+    flex-grow: 1;
+    padding: 1rem;
+}
+
+/* Styling for the loading overlay */
+#loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    color: #cbd5e0;
+    font-size: 1.2rem;
+    text-align: center;
+}
+
+/* Spinning loader animation */
+.spinner {
+    border: 8px solid rgba(255, 255, 255, 0.3);
+    border-top: 8px solid #3498db;
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Progress bar styling */
+#loading-bar-container {
+    width: 80%;
+    background-color: #333;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-top: 15px;
+}
+
+#loading-bar {
+    height: 20px;
+    width: 0%;
+    background-color: #4CAF50;
+    border-radius: 5px;
+    transition: width 0.1s ease-out; /* Smooth transition for bar updates */
+}
+
+/* Modal specific styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 999;
+    visibility: hidden; /* Hidden by default */
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+}
+
+.modal-overlay.visible {
+    visibility: visible;
+    opacity: 1;
+}
+
+.modal-content {
+    background-color: #2d3748; /* Darker background for modal */
+    padding: 2.5rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.2);
+    width: 90%;
+    max-width: 700px;
+    max-height: 90vh; /* Limit height to prevent overflow */
+    overflow-y: auto; /* Enable scrolling for taller content */
+    position: relative;
+    transform: translateY(-20px); /* Initial subtle animation */
+    transition: transform 0.3s ease-out;
+}
+
+.modal-overlay.visible .modal-content {
+    transform: translateY(0);
+}
+
+.modal-close-button {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #cbd5e0;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.modal-close-button:hover {
+    color: #ef4444; /* Red on hover */
+}
+
+/* Custom CSS variable for selected card background */
+:root {
+    --color-selected-card: rgba(0, 255, 255, 0.1); /* Slightly cyan for selected cards */
+}
+/* This class will be applied by JavaScript to selected cards */
+.bg-selected-card {
+    background-color: var(--color-selected-card);
+}
+
+/* Ensure images inside cards are responsive */
+.asset-card img {
+    width: 100%;
+    height: 120px; /* Fixed height for image previews */
+    object-fit: contain; /* Contain the image within the area */
+    border-radius: 0.375rem; /* Rounded corners */
+}
